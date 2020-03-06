@@ -1990,7 +1990,7 @@ decode_bank_card(#domain_BankCard{
     'token'  = Token,
     'payment_system' = PaymentSystem,
     'bin' = Bin,
-    'masked_pan' = MaskedPan,
+    'last_digits' = LastDigits,
     'token_provider' = TokenProvider,
     'issuer_country' = IssuerCountry,
     'bank_name'      = BankName,
@@ -2001,7 +2001,7 @@ decode_bank_card(#domain_BankCard{
         <<"token">> => Token,
         <<"payment_system">> => PaymentSystem,
         <<"bin">> => Bin,
-        <<"masked_pan">> => MaskedPan,
+        <<"masked_pan">> => LastDigits,
         <<"token_provider">> => TokenProvider,
         <<"issuer_country">> => IssuerCountry,
         <<"bank_name"     >> => BankName,
@@ -2477,13 +2477,13 @@ make_access_token(Fun, ID, PartyID, _Context) ->
 encode_bank_card(#{
     <<"token">> := Token,
     <<"payment_system">> := PaymentSystem,
-    <<"masked_pan">> := MaskedPan
+    <<"masked_pan">> := LastDigits
 } = BankCard) ->
     {bank_card, #domain_BankCard{
         'token'  = Token,
         'payment_system' = encode_payment_system(PaymentSystem),
         'bin'            = maps:get(<<"bin">>, BankCard, <<>>),
-        'masked_pan'     = MaskedPan,
+        'last_digits'    = LastDigits,
         'token_provider' = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
         'issuer_country' = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
         'bank_name'      = genlib_map:get(<<"bank_name">>, BankCard),
@@ -2812,7 +2812,7 @@ decode_payment_tool_details({crypto_currency, CryptoCurrency}) ->
     }.
 
 decode_bank_card_details(BankCard, V) ->
-    LastDigits = decode_last_digits(BankCard#domain_BankCard.masked_pan),
+    LastDigits = decode_last_digits(BankCard#domain_BankCard.last_digits),
     Bin = decode_bank_card_bin(BankCard#domain_BankCard.bin),
     merge_and_compact(V, #{
         <<"lastDigits">>     => LastDigits,
@@ -2850,10 +2850,10 @@ decode_digital_wallet_details(#domain_DigitalWallet{
 
 -define(MASKED_PAN_MAX_LENGTH, 4).
 
-decode_last_digits(MaskedPan) when byte_size(MaskedPan) > ?MASKED_PAN_MAX_LENGTH ->
-    binary:part(MaskedPan, {byte_size(MaskedPan), -?MASKED_PAN_MAX_LENGTH});
-decode_last_digits(MaskedPan) ->
-    MaskedPan.
+decode_last_digits(LastDigits) when byte_size(LastDigits) > ?MASKED_PAN_MAX_LENGTH ->
+    binary:part(LastDigits, {byte_size(LastDigits), -?MASKED_PAN_MAX_LENGTH});
+decode_last_digits(LastDigits) ->
+    LastDigits.
 
 -define(PAN_LENGTH, 16).
 
@@ -2982,14 +2982,14 @@ merchstat_to_domain({bank_card, #merchstat_BankCard{
     'token' = Token,
     'payment_system' = PaymentSystem,
     'bin' = Bin,
-    'masked_pan' = MaskedPan,
+    'masked_pan' = LastDigits,
     'token_provider' = TokenProvider
 }}) ->
     {bank_card, #domain_BankCard{
         'token' = Token,
         'payment_system' = PaymentSystem,
         'bin' = Bin,
-        'masked_pan' = MaskedPan,
+        'last_digits' = LastDigits,
         'token_provider' = TokenProvider
     }};
 
