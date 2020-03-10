@@ -776,7 +776,7 @@ get_encrypted_token() ->
         token = <<"4111111111111111">>,
         payment_system = mastercard,
         bin = <<>>,
-        masked_pan = <<"1111">>,
+        last_digits = <<"1111">>,
         cardholder_name = <<"Degus Degusovich">>
     }},
     capi_crypto:create_encrypted_payment_tool_token(<<"idemp key">>, PaymentTool).
