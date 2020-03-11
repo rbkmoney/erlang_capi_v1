@@ -92,7 +92,7 @@
     token = ?STRING,
     payment_system = visa,
     bin = <<"411111">>,
-    masked_pan = <<"411111******1111">>
+    last_digits = <<"1111">>
 }).
 
 -define(CONTACT_INFO, #domain_ContactInfo{
@@ -578,14 +578,14 @@
     token = ?STRING,
     payment_system = visa,
     bin = <<"411111">>,
-    masked_pan = <<"411111******1111">>
+    masked_pan = <<"1111">>
 }).
 
 -define(STAT_BANK_CARD_WITH_TP, #merchstat_BankCard{
     token = ?STRING,
     payment_system = visa,
     bin = <<"411111">>,
-    masked_pan = <<"411111******1111">>,
+    masked_pan = <<"1111">>,
     token_provider = applepay
 }).
 
