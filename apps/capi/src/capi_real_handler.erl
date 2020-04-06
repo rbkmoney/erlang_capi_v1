@@ -87,7 +87,9 @@ process_request('CreateInvoice' = OperationID, Req, Context, ReqCtx) ->
                 #payproc_InvalidPartyStatus{} ->
                     {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
+                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                #payproc_InvoiceTermsViolated{} ->
+                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}}
             end
     catch
         invoice_cart_empty ->
@@ -801,7 +803,9 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
                 #payproc_InvoiceTemplateNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
                 #payproc_InvoiceTemplateRemoved{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}}
+                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                #payproc_InvoiceTermsViolated{} ->
+                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}}
             end
     catch
         throw:{bad_invoice_params, currency_no_amount} ->
