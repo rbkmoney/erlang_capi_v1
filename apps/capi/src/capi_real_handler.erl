@@ -815,7 +815,7 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
     end;
 
 process_request('GetInvoicePaymentMethodsByTemplateID', Req, Context, ReqCtx) ->
-    {ok, Timestamp} = rfc3339:format(erlang:system_time()),
+    Timestamp = genlib_rfc3339:format_relaxed(erlang:system_time(millisecond), millisecond),
     Result = construct_payment_methods(
         invoice_templating,
         [
@@ -4585,15 +4585,9 @@ get_split_interval(SplitSize, year) ->
     SplitSize * 60 * 60 * 24 * 365.
 
 get_time_diff(From, To) ->
-    {DateFrom, TimeFrom} = parse_rfc3339_datetime(From),
-    {DateTo, TimeTo} = parse_rfc3339_datetime(To),
-    UnixFrom = genlib_time:daytime_to_unixtime({DateFrom, TimeFrom}),
-    UnixTo = genlib_time:daytime_to_unixtime({DateTo, TimeTo}),
+    UnixFrom = genlib_rfc3339:parse(From, second),
+    UnixTo = genlib_rfc3339:parse(To, second),
     UnixTo - UnixFrom.
-
-parse_rfc3339_datetime(DateTime) ->
-    {ok, {DateFrom, TimeFrom, _, _}} = rfc3339:parse(DateTime),
-    {DateFrom, TimeFrom}.
 
 format_request_errors([]) ->
     <<>>;
@@ -4898,8 +4892,7 @@ unwrap_payment_session(Encoded) ->
 get_default_url_lifetime() ->
     Now = erlang:system_time(second),
     Lifetime = application:get_env(capi, reporter_url_lifetime, ?DEFAULT_URL_LIFETIME),
-    {ok, Val} = rfc3339:format(Now + Lifetime, second),
-    Val.
+    genlib_rfc3339:format(Now + Lifetime, second).
 
 compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
