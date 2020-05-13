@@ -43,10 +43,17 @@ authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
     swag_server:error_reason().
 
 map_error(validation_error, Error) ->
-    Description = genlib:to_binary(maps:get(description, Error, <<>>)),
     Type = genlib:to_binary(maps:get(type, Error)),
     Name = genlib:to_binary(maps:get(param_name, Error)),
-    Message = <<Name/binary, " ", Type/binary, " ", Description/binary>>,
+    Message = case maps:get(description, Error, undefined) of
+        undefined ->
+            <<"Request parameter: ", Name/binary, ", error type: ", Type/binary>>;
+        Description ->
+            DescriptionBin = genlib:to_binary(Description),
+            <<"Request parameter: ", Name/binary,
+            ", error type: ", Type/binary,
+            ", description: ", DescriptionBin/binary>>
+    end,
     jsx:encode(#{
         <<"code">> => <<"invalidRequest">>,
         <<"message">> => Message
