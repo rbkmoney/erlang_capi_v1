@@ -2,8 +2,10 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("capi_dummy_data.hrl").
 
 -include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_payment_processing_errors_thrift.hrl").
 -include_lib("damsel/include/dmsl_accounter_thrift.hrl").
 -include_lib("damsel/include/dmsl_cds_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
@@ -11,7 +13,6 @@
 -include_lib("damsel/include/dmsl_merch_stat_thrift.hrl").
 -include_lib("reporter_proto/include/reporter_reports_thrift.hrl").
 -include_lib("damsel/include/dmsl_payment_tool_provider_thrift.hrl").
--include_lib("capi_dummy_data.hrl").
 -include_lib("jose/include/jose_jwk.hrl").
 
 -export([all/0]).
@@ -62,6 +63,7 @@
     create_payment_with_encrypt_token_ok_test/1,
     get_payments_ok_test/1,
     get_payment_by_id_ok_test/1,
+    get_payment_by_id_error_test/1,
     create_refund/1,
     create_refund_idemp_ok_test/1,
     create_partial_refund/1,
@@ -174,6 +176,7 @@ invoice_access_token_tests() ->
         create_payment_with_encrypt_token_ok_test,
         get_payments_ok_test,
         get_payment_by_id_ok_test,
+        get_payment_by_id_error_test,
         cancel_payment_ok_test,
         capture_payment_ok_test
     ].
@@ -791,6 +794,20 @@ get_payments_ok_test(Config) ->
     _.
 get_payment_by_id_ok_test(Config) ->
     mock_services([{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_PAYMENT} end}], Config),
+    {ok, _} = capi_client_payments:get_payment_by_id(?config(context, Config), ?STRING, ?STRING).
+
+-spec get_payment_by_id_error_test(config()) ->
+    _.
+get_payment_by_id_error_test(Config) ->
+    Failure =
+        payproc_errors:construct('PaymentFailure', {authorization_failed,
+            {payment_tool_rejected,
+                {bank_card_rejected,
+                    {cvv_invalid, #payprocerr_GeneralFailure{}}
+                }
+            }
+        }, <<"Reason">>),
+    mock_services([{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_FAILED_PAYMENT({failure, Failure})} end}], Config),
     {ok, _} = capi_client_payments:get_payment_by_id(?config(context, Config), ?STRING, ?STRING).
 
 -spec create_refund(config()) ->
