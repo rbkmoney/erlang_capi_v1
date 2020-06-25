@@ -13,9 +13,12 @@
 
 -behaviour(swag_server_logic_handler).
 
+-type error_type() :: swag_server_logic_handler:error_type().
+
 %% API callbacks
 -export([authorize_api_key/3]).
 -export([handle_request/4]).
+-export([map_error/2]).
 
 %% @WARNING Must be refactored in case of different classes of users using this API
 -define(REALM, <<"external">>).
@@ -35,6 +38,26 @@
 authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
     _ = capi_utils:logtag_process(operation_id, OperationID),
     capi_auth:authorize_api_key(OperationID, ApiKey).
+
+-spec map_error(error_type(), swag_server_validation:error()) ->
+    swag_server:error_reason().
+
+map_error(validation_error, Error) ->
+    Type = genlib:to_binary(maps:get(type, Error)),
+    Name = genlib:to_binary(maps:get(param_name, Error)),
+    Message = case maps:get(description, Error, undefined) of
+        undefined ->
+            <<"Request parameter: ", Name/binary, ", error type: ", Type/binary>>;
+        Description ->
+            DescriptionBin = genlib:to_binary(Description),
+            <<"Request parameter: ", Name/binary,
+            ", error type: ", Type/binary,
+            ", description: ", DescriptionBin/binary>>
+    end,
+    jsx:encode(#{
+        <<"code">> => <<"invalidRequest">>,
+        <<"message">> => Message
+    }).
 
 -type request_data() :: #{atom() | binary() => term()}.
 -type handler_opts()        :: swag_server:handler_opts(_).
@@ -87,7 +110,9 @@ process_request('CreateInvoice' = OperationID, Req, Context, ReqCtx) ->
                 #payproc_InvalidPartyStatus{} ->
                     {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
+                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                #payproc_InvoiceTermsViolated{} ->
+                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}}
             end
     catch
         invoice_cart_empty ->
@@ -801,7 +826,9 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
                 #payproc_InvoiceTemplateNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
                 #payproc_InvoiceTemplateRemoved{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}}
+                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                #payproc_InvoiceTermsViolated{} ->
+                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}}
             end
     catch
         throw:{bad_invoice_params, currency_no_amount} ->
@@ -811,7 +838,7 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
     end;
 
 process_request('GetInvoicePaymentMethodsByTemplateID', Req, Context, ReqCtx) ->
-    {ok, Timestamp} = rfc3339:format(erlang:system_time()),
+    Timestamp = genlib_rfc3339:format_relaxed(erlang:system_time(millisecond), millisecond),
     Result = construct_payment_methods(
         invoice_templating,
         [
@@ -4581,15 +4608,9 @@ get_split_interval(SplitSize, year) ->
     SplitSize * 60 * 60 * 24 * 365.
 
 get_time_diff(From, To) ->
-    {DateFrom, TimeFrom} = parse_rfc3339_datetime(From),
-    {DateTo, TimeTo} = parse_rfc3339_datetime(To),
-    UnixFrom = genlib_time:daytime_to_unixtime({DateFrom, TimeFrom}),
-    UnixTo = genlib_time:daytime_to_unixtime({DateTo, TimeTo}),
+    UnixFrom = genlib_rfc3339:parse(From, second),
+    UnixTo = genlib_rfc3339:parse(To, second),
     UnixTo - UnixFrom.
-
-parse_rfc3339_datetime(DateTime) ->
-    {ok, {DateFrom, TimeFrom, _, _}} = rfc3339:parse(DateTime),
-    {DateFrom, TimeFrom}.
 
 format_request_errors([]) ->
     <<>>;
@@ -4894,8 +4915,7 @@ unwrap_payment_session(Encoded) ->
 get_default_url_lifetime() ->
     Now = erlang:system_time(second),
     Lifetime = application:get_env(capi, reporter_url_lifetime, ?DEFAULT_URL_LIFETIME),
-    {ok, Val} = rfc3339:format(Now + Lifetime, second),
-    Val.
+    genlib_rfc3339:format(Now + Lifetime, second).
 
 compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
