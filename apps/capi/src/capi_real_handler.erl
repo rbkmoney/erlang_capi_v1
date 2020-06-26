@@ -2915,10 +2915,9 @@ decode_payment_status({Status, StatusInfo}) ->
 decode_operation_failure({operation_timeout, _}) ->
     logic_error(timeout, <<"timeout">>);
 decode_operation_failure({failure, #domain_Failure{
-    code = Code,
-    reason = Reason
-}}) ->
-    logic_error(Code, Reason).
+    code = Code
+} = Failure}) ->
+    logic_error(Code, payproc_errors:format_raw(Failure)).
 
 decode_stat_payment(#merchstat_StatPayment{
     id = PaymentID,

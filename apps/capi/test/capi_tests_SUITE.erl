@@ -808,7 +808,9 @@ get_payment_by_id_error_test(Config) ->
             }
         }, <<"Reason">>),
     mock_services([{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_FAILED_PAYMENT({failure, Failure})} end}], Config),
-    {ok, _} = capi_client_payments:get_payment_by_id(?config(context, Config), ?STRING, ?STRING).
+    {ok, #{<<"error">> := #{
+            <<"message">> := <<"authorization_failed:payment_tool_rejected:bank_card_rejected:cvv_invalid">>
+        }}} = capi_client_payments:get_payment_by_id(?config(context, Config), ?STRING, ?STRING).
 
 -spec create_refund(config()) ->
     _.
