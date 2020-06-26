@@ -1,3 +1,13 @@
+-ifndef(capi_dummy_data_included__).
+-define(capi_dummy_data_included__, ok).
+
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
+-include_lib("damsel/include/dmsl_payment_processing_thrift.hrl").
+-include_lib("damsel/include/dmsl_webhooker_thrift.hrl").
+-include_lib("damsel/include/dmsl_merch_stat_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("reporter_proto/include/reporter_reports_thrift.hrl").
+
 -define(STRING, <<"TEST">>).
 -define(RUB, <<"RUB">>).
 -define(USD, <<"USD">>).
@@ -116,19 +126,20 @@
 
 -define(PAYER, {payment_resource, ?PAYMENT_RESOURCE_PAYER}).
 
--define(PAYMENT, #domain_InvoicePayment{
+-define(PAYMENT, ?PAYMENT({pending, #domain_InvoicePaymentPending{}})).
+-define(PAYMENT(Status), #domain_InvoicePayment{
     id              = ?STRING,
     created_at      = ?TIMESTAMP,
     domain_revision = ?INTEGER,
-    status          = {pending, #domain_InvoicePaymentPending{}},
+    status          = Status,
     payer           = ?PAYER,
     cost            = ?CASH,
     flow            = {instant, #domain_InvoicePaymentFlowInstant{}},
     context         = ?CONTENT
 }).
 
--define(PAYPROC_PAYMENT, #payproc_InvoicePayment{
-    payment = ?PAYMENT,
+-define(PAYPROC_PAYMENT(Payment), #payproc_InvoicePayment{
+    payment = Payment,
     refunds = [?REFUND],
     legacy_refunds = [?REFUND_DOMAIN],
     adjustments = [?ADJUSTMENT],
@@ -136,6 +147,10 @@
         target_status = {processed, #domain_InvoicePaymentProcessed{}}
     }]
 }).
+
+-define(PAYPROC_PAYMENT, ?PAYPROC_PAYMENT(?PAYMENT)).
+-define(FAILED_PAYMENT(Failure), ?PAYMENT({failed, #domain_InvoicePaymentFailed{failure = Failure}})).
+-define(PAYPROC_FAILED_PAYMENT(Failure), ?PAYPROC_PAYMENT(?FAILED_PAYMENT(Failure))).
 
 -define(ACCOUNT_STATE, #payproc_AccountState{
     account_id = ?INTEGER,
@@ -790,3 +805,5 @@
         <<"ip"         >> => <<"::ffff:127.0.0.1">>
     }
 })).
+
+-endif.
