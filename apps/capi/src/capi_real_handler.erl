@@ -13,8 +13,6 @@
 
 -behaviour(swag_server_logic_handler).
 
--type error_type() :: swag_server_logic_handler:error_type().
-
 %% API callbacks
 -export([authorize_api_key/3]).
 -export([handle_request/4]).
@@ -39,7 +37,7 @@ authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
     _ = capi_utils:logtag_process(operation_id, OperationID),
     capi_auth:authorize_api_key(OperationID, ApiKey).
 
--spec map_error(error_type(), swag_server_validation:error()) ->
+-spec map_error(atom(), swag_server_validation:error()) ->
     swag_server:error_reason().
 
 map_error(validation_error, Error) ->
@@ -4873,10 +4871,7 @@ decode_tokenized_bank_cards([#domain_TokenizedBankCard{} | _ ] = TokenizedBankCa
     ],
     do_decode_tokenized_bank_cards(PropTokenizedBankCards).
 
-do_decode_tokenized_bank_cards(TokenizedBankCards) ->
-    PropTokenizedBankCards = [
-        {TP, PS} || #domain_TokenizedBankCard{payment_system = PS, token_provider = TP} <- TokenizedBankCards
-    ],
+do_decode_tokenized_bank_cards(PropTokenizedBankCards) ->
     lists:map(
         fun(TokenProvider) ->
             {_, PaymentSystems} = lists:unzip(proplists:lookup_all(TokenProvider, PropTokenizedBankCards)),
