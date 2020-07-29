@@ -13,8 +13,6 @@
 
 -behaviour(swag_server_logic_handler).
 
--type error_type() :: swag_server_logic_handler:error_type().
-
 %% API callbacks
 -export([authorize_api_key/3]).
 -export([handle_request/4]).
@@ -39,7 +37,7 @@ authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
     _ = capi_utils:logtag_process(operation_id, OperationID),
     capi_auth:authorize_api_key(OperationID, ApiKey).
 
--spec map_error(error_type(), swag_server_validation:error()) ->
+-spec map_error(atom(), swag_server_validation:error()) ->
     swag_server:error_reason().
 
 map_error(validation_error, Error) ->
@@ -2014,25 +2012,27 @@ encode_legacy_payment_tool_token(Token) ->
     end.
 
 decode_bank_card(#domain_BankCard{
-    'token'  = Token,
-    'payment_system' = PaymentSystem,
-    'bin' = Bin,
-    'last_digits' = LastDigits,
-    'token_provider' = TokenProvider,
-    'issuer_country' = IssuerCountry,
-    'bank_name'      = BankName,
-    'metadata'       = Metadata
+    'token'               = Token,
+    'payment_system'      = PaymentSystem,
+    'bin'                 = Bin,
+    'last_digits'         = LastDigits,
+    'token_provider'      = TokenProvider,
+    'issuer_country'      = IssuerCountry,
+    'bank_name'           = BankName,
+    'metadata'            = Metadata,
+    'tokenization_method' = TokenizationMethod
 }) ->
     capi_utils:map_to_base64url(genlib_map:compact(#{
-        <<"type">> => <<"bank_card">>,
-        <<"token">> => Token,
-        <<"payment_system">> => PaymentSystem,
-        <<"bin">> => Bin,
-        <<"masked_pan">> => LastDigits,
-        <<"token_provider">> => TokenProvider,
-        <<"issuer_country">> => IssuerCountry,
-        <<"bank_name"     >> => BankName,
-        <<"metadata"      >> => decode_bank_card_metadata(Metadata)
+        <<"type">>                =>  <<"bank_card">>,
+        <<"token">>               => Token,
+        <<"payment_system">>      => PaymentSystem,
+        <<"bin">>                 => Bin,
+        <<"masked_pan">>          => LastDigits,
+        <<"token_provider">>      => TokenProvider,
+        <<"issuer_country">>      => IssuerCountry,
+        <<"bank_name"     >>      => BankName,
+        <<"metadata"      >>      => decode_bank_card_metadata(Metadata),
+        <<"tokenization_method">> => TokenizationMethod
     })).
 
 decode_bank_card_metadata(undefined) ->
@@ -2507,14 +2507,15 @@ encode_bank_card(#{
     <<"masked_pan">> := LastDigits
 } = BankCard) ->
     {bank_card, #domain_BankCard{
-        'token'  = Token,
-        'payment_system' = encode_payment_system(PaymentSystem),
-        'bin'            = maps:get(<<"bin">>, BankCard, <<>>),
-        'last_digits'    = LastDigits,
-        'token_provider' = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
-        'issuer_country' = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
-        'bank_name'      = genlib_map:get(<<"bank_name">>, BankCard),
-        'metadata'       = encode_bank_card_metadata(genlib_map:get(<<"metadata">>, BankCard))
+        'token'               = Token,
+        'payment_system'      = encode_payment_system(PaymentSystem),
+        'bin'                 = maps:get(<<"bin">>, BankCard, <<>>),
+        'last_digits'         = LastDigits,
+        'token_provider'      = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
+        'issuer_country'      = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
+        'bank_name'           = genlib_map:get(<<"bank_name">>, BankCard),
+        'metadata'            = encode_bank_card_metadata(genlib_map:get(<<"metadata">>, BankCard)),
+        'tokenization_method' = genlib_map:get(<<"tokenization_method">>, BankCard)
     }}.
 
 encode_payment_system(PaymentSystem) ->
@@ -2846,7 +2847,8 @@ decode_bank_card_details(BankCard, V) ->
         <<"bin">>            => Bin,
         <<"cardNumberMask">> => decode_masked_pan(Bin, LastDigits),
         <<"paymentSystem" >> => genlib:to_binary(BankCard#domain_BankCard.payment_system),
-        <<"tokenProvider" >> => decode_token_provider(BankCard#domain_BankCard.token_provider)
+        <<"tokenProvider" >> => decode_token_provider(BankCard#domain_BankCard.token_provider),
+        <<"tokenizationMethod">> => genlib:to_binary(BankCard#domain_BankCard.tokenization_method)
     }).
 
 decode_bank_card_bin(<<>>) ->
@@ -4839,21 +4841,37 @@ decode_payment_methods({value, PaymentMethodRefs}) ->
         proplists:get_keys(PaymentMethods)
     ).
 
-decode_payment_method(empty_cvv_bank_card, PaymentSystems) ->
+decode_payment_method(empty_cvv_bank_card_deprecated, PaymentSystems) ->
     [#{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun genlib:to_binary/1, PaymentSystems)}];
-decode_payment_method(bank_card, PaymentSystems) ->
+decode_payment_method(bank_card_deprecated, PaymentSystems) ->
     [#{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun genlib:to_binary/1, PaymentSystems)}];
 decode_payment_method(payment_terminal, Providers) ->
     [#{<<"method">> => <<"PaymentTerminal">>, <<"providers">> => lists:map(fun genlib:to_binary/1, Providers)}];
 decode_payment_method(digital_wallet, Providers) ->
     [#{<<"method">> => <<"DigitalWallet">>, <<"providers">> => lists:map(fun genlib:to_binary/1, Providers)}];
-decode_payment_method(tokenized_bank_card, TokenizedBankCards) ->
-   decode_tokenized_bank_cards(TokenizedBankCards).
+decode_payment_method(tokenized_bank_card_deprecated, TokenizedBankCards) ->
+    decode_tokenized_bank_cards(TokenizedBankCards);
+decode_payment_method(bank_card, Cards) ->
+    {Regular, Tokenized} =
+        lists:partition(fun(#domain_BankCardPaymentMethod{token_provider = TP}) -> TP =:= undefined end, Cards),
+    [#{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun decode_bank_card_pm/1, Regular)}
+        | decode_tokenized_bank_cards(Tokenized)].
 
-decode_tokenized_bank_cards(TokenizedBankCards) ->
+decode_bank_card_pm(#domain_BankCardPaymentMethod{payment_system = PS}) -> genlib:to_binary(PS).
+
+decode_tokenized_bank_cards([#domain_BankCardPaymentMethod{} | _ ] = TokenizedBankCards) ->
+    PropTokenizedBankCards = [
+        {TP, PS} || #domain_BankCardPaymentMethod{payment_system = PS, token_provider = TP} <- TokenizedBankCards
+    ],
+    do_decode_tokenized_bank_cards(PropTokenizedBankCards);
+
+decode_tokenized_bank_cards([#domain_TokenizedBankCard{} | _ ] = TokenizedBankCards) ->
     PropTokenizedBankCards = [
         {TP, PS} || #domain_TokenizedBankCard{payment_system = PS, token_provider = TP} <- TokenizedBankCards
     ],
+    do_decode_tokenized_bank_cards(PropTokenizedBankCards).
+
+do_decode_tokenized_bank_cards(PropTokenizedBankCards) ->
     lists:map(
         fun(TokenProvider) ->
             {_, PaymentSystems} = lists:unzip(proplists:lookup_all(TokenProvider, PropTokenizedBankCards)),
