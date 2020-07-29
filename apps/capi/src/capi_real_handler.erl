@@ -2014,25 +2014,27 @@ encode_legacy_payment_tool_token(Token) ->
     end.
 
 decode_bank_card(#domain_BankCard{
-    'token'  = Token,
-    'payment_system' = PaymentSystem,
-    'bin' = Bin,
-    'last_digits' = LastDigits,
-    'token_provider' = TokenProvider,
-    'issuer_country' = IssuerCountry,
-    'bank_name'      = BankName,
-    'metadata'       = Metadata
+    'token'               = Token,
+    'payment_system'      = PaymentSystem,
+    'bin'                 = Bin,
+    'last_digits'         = LastDigits,
+    'token_provider'      = TokenProvider,
+    'issuer_country'      = IssuerCountry,
+    'bank_name'           = BankName,
+    'metadata'            = Metadata,
+    'tokenization_method' = TokenizationMethod
 }) ->
     capi_utils:map_to_base64url(genlib_map:compact(#{
-        <<"type">> => <<"bank_card">>,
-        <<"token">> => Token,
-        <<"payment_system">> => PaymentSystem,
-        <<"bin">> => Bin,
-        <<"masked_pan">> => LastDigits,
-        <<"token_provider">> => TokenProvider,
-        <<"issuer_country">> => IssuerCountry,
-        <<"bank_name"     >> => BankName,
-        <<"metadata"      >> => decode_bank_card_metadata(Metadata)
+        <<"type">>                =>  <<"bank_card">>,
+        <<"token">>               => Token,
+        <<"payment_system">>      => PaymentSystem,
+        <<"bin">>                 => Bin,
+        <<"masked_pan">>          => LastDigits,
+        <<"token_provider">>      => TokenProvider,
+        <<"issuer_country">>      => IssuerCountry,
+        <<"bank_name"     >>      => BankName,
+        <<"metadata"      >>      => decode_bank_card_metadata(Metadata),
+        <<"tokenization_method">> => TokenizationMethod
     })).
 
 decode_bank_card_metadata(undefined) ->
@@ -2507,14 +2509,15 @@ encode_bank_card(#{
     <<"masked_pan">> := LastDigits
 } = BankCard) ->
     {bank_card, #domain_BankCard{
-        'token'  = Token,
-        'payment_system' = encode_payment_system(PaymentSystem),
-        'bin'            = maps:get(<<"bin">>, BankCard, <<>>),
-        'last_digits'    = LastDigits,
-        'token_provider' = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
-        'issuer_country' = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
-        'bank_name'      = genlib_map:get(<<"bank_name">>, BankCard),
-        'metadata'       = encode_bank_card_metadata(genlib_map:get(<<"metadata">>, BankCard))
+        'token'               = Token,
+        'payment_system'      = encode_payment_system(PaymentSystem),
+        'bin'                 = maps:get(<<"bin">>, BankCard, <<>>),
+        'last_digits'         = LastDigits,
+        'token_provider'      = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
+        'issuer_country'      = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
+        'bank_name'           = genlib_map:get(<<"bank_name">>, BankCard),
+        'metadata'            = encode_bank_card_metadata(genlib_map:get(<<"metadata">>, BankCard)),
+        'tokenization_method' = genlib_map:get(<<"tokenization_method">>, BankCard)
     }}.
 
 encode_payment_system(PaymentSystem) ->
@@ -2846,7 +2849,8 @@ decode_bank_card_details(BankCard, V) ->
         <<"bin">>            => Bin,
         <<"cardNumberMask">> => decode_masked_pan(Bin, LastDigits),
         <<"paymentSystem" >> => genlib:to_binary(BankCard#domain_BankCard.payment_system),
-        <<"tokenProvider" >> => decode_token_provider(BankCard#domain_BankCard.token_provider)
+        <<"tokenProvider" >> => decode_token_provider(BankCard#domain_BankCard.token_provider),
+        <<"tokenizationMethod">> => genlib:to_binary(BankCard#domain_BankCard.tokenization_method)
     }).
 
 decode_bank_card_bin(<<>>) ->
