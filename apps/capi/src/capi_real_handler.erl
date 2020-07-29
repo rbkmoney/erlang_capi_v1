@@ -4839,18 +4839,37 @@ decode_payment_methods({value, PaymentMethodRefs}) ->
         proplists:get_keys(PaymentMethods)
     ).
 
-decode_payment_method(empty_cvv_bank_card, PaymentSystems) ->
+decode_payment_method(empty_cvv_bank_card_deprecated, PaymentSystems) ->
     [#{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun genlib:to_binary/1, PaymentSystems)}];
-decode_payment_method(bank_card, PaymentSystems) ->
+decode_payment_method(bank_card_deprecated, PaymentSystems) ->
     [#{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun genlib:to_binary/1, PaymentSystems)}];
 decode_payment_method(payment_terminal, Providers) ->
     [#{<<"method">> => <<"PaymentTerminal">>, <<"providers">> => lists:map(fun genlib:to_binary/1, Providers)}];
 decode_payment_method(digital_wallet, Providers) ->
     [#{<<"method">> => <<"DigitalWallet">>, <<"providers">> => lists:map(fun genlib:to_binary/1, Providers)}];
-decode_payment_method(tokenized_bank_card, TokenizedBankCards) ->
-   decode_tokenized_bank_cards(TokenizedBankCards).
+decode_payment_method(tokenized_bank_card_deprecated, TokenizedBankCards) ->
+    decode_tokenized_bank_cards(TokenizedBankCards);
+decode_payment_method(bank_card, Cards) ->
+    {Regular, Tokenized} =
+        lists:partition(fun(#domain_BankCardPaymentMethod{token_provider = TP}) -> TP =:= undefined end, Cards),
+    [#{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun decode_bank_card_pm/1, Regular)}
+        | decode_tokenized_bank_cards(Tokenized)].
 
-decode_tokenized_bank_cards(TokenizedBankCards) ->
+decode_bank_card_pm(#domain_BankCardPaymentMethod{payment_system = PS}) -> genlib:to_binary(PS).
+
+decode_tokenized_bank_cards([#domain_BankCardPaymentMethod{} | _ ] = TokenizedBankCards) ->
+    PropTokenizedBankCards = [
+        {TP, PS} || #domain_BankCardPaymentMethod{payment_system = PS, token_provider = TP} <- TokenizedBankCards
+    ],
+    do_decode_tokenized_bank_cards(PropTokenizedBankCards);
+
+decode_tokenized_bank_cards([#domain_TokenizedBankCard{} | _ ] = TokenizedBankCards) ->
+    PropTokenizedBankCards = [
+        {TP, PS} || #domain_TokenizedBankCard{payment_system = PS, token_provider = TP} <- TokenizedBankCards
+    ],
+    do_decode_tokenized_bank_cards(PropTokenizedBankCards).
+
+do_decode_tokenized_bank_cards(TokenizedBankCards) ->
     PropTokenizedBankCards = [
         {TP, PS} || #domain_TokenizedBankCard{payment_system = PS, token_provider = TP} <- TokenizedBankCards
     ],
