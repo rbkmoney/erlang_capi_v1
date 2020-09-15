@@ -32,7 +32,7 @@ authorize_api_key(OperationID, ApiKey) ->
         {ok, {Type, Credentials}} ->
             case authorize_api_key(OperationID, Type, Credentials) of
                 {ok, Context} ->
-                    {true, Context};
+                    check_blacklist(ApiKey, Context);
                 {error, Error} ->
                     _ = log_auth_error(OperationID, Error),
                     false
@@ -345,3 +345,13 @@ get_resource_hierarchy() ->
         payment_resources   => #{},
         payouts             => #{}
     }.
+
+check_blacklist(ApiKey, Context) ->
+    case capi_api_key_blacklist:check(ApiKey) of
+        true ->
+            SubjectId = get_subject_id(Context),
+            _ = logger:warning("Blacklisted API Key usage detected for subject_id: ~p", [SubjectId]),
+            false;
+        false ->
+            {true, Context}
+    end.
