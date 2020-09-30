@@ -758,6 +758,8 @@ create_payment_ok_test(Config) ->
 -spec create_payment_with_encrypt_token_ok_test(config()) ->
     _.
 create_payment_with_encrypt_token_ok_test(Config) ->
+    Tid = capi_ct_helper_bender:create_storage(),
+    BenderKey = <<"payment_key">>,
     mock_services(
         [
             {invoicing, fun(
@@ -767,25 +769,32 @@ create_payment_with_encrypt_token_ok_test(Config) ->
                 {ok, ?PAYPROC_PAYMENT}
             end},
             {bender, fun
-                ('GenerateID', [_, {sequence,  _}, _]) -> {ok, capi_ct_helper_bender:get_result(<<"payment_key">>)};
-                ('GenerateID', [_, {constant,  _}, _]) -> {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
+                ('GenerateID', [_, {sequence,  _}, CtxMsgPack]) ->
+                    capi_ct_helper_bender:get_internal_id(Tid, BenderKey, CtxMsgPack);
+                ('GenerateID', [_, {constant,  _}, _]) ->
+                    {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
             end}
         ],
         Config
     ),
-    PaymentToolToken = get_encrypted_token(),
-    Req2 = #{
-        <<"flow">> => #{<<"type">> => <<"PaymentFlowInstant">>},
-        <<"payer">> => #{
-            <<"payerType">> => <<"PaymentResourcePayer">>,
-            <<"paymentSession">> => ?TEST_PAYMENT_SESSION,
-            <<"paymentToolToken">> => PaymentToolToken,
-            <<"contactInfo">> => #{
-                <<"email">> => <<"bla@bla.ru">>
-            }
+    Payer = #{
+        <<"payerType">> => <<"PaymentResourcePayer">>,
+        <<"paymentSession">> => ?TEST_PAYMENT_SESSION,
+        <<"contactInfo">> => #{
+            <<"email">> => <<"bla@bla.ru">>
         }
     },
-    {ok, _} = capi_client_payments:create_payment(?config(context, Config), Req2, ?STRING).
+    Req1 = #{
+        <<"flow">> => #{<<"type">> => <<"PaymentFlowInstant">>},
+        <<"payer">> => Payer#{<<"paymentToolToken">> => get_encrypted_token()}
+    },
+    Req2 = #{
+        <<"flow">> => #{<<"type">> => <<"PaymentFlowInstant">>},
+        <<"payer">> => Payer#{<<"paymentToolToken">> => get_encrypted_token()}
+    },
+    {ok, Payment} = capi_client_payments:create_payment(?config(context, Config), Req1, ?STRING),
+    {ok, Payment} = capi_client_payments:create_payment(?config(context, Config), Req2, ?STRING),
+    capi_ct_helper_bender:del_storage(Tid).
 
 get_encrypted_token() ->
     PaymentTool = {bank_card, #domain_BankCard{
@@ -795,7 +804,7 @@ get_encrypted_token() ->
         last_digits = <<"1111">>,
         cardholder_name = <<"Degus Degusovich">>
     }},
-    capi_crypto:create_encrypted_payment_tool_token(<<"idemp key">>, PaymentTool).
+    capi_crypto:create_encrypted_payment_tool_token(PaymentTool).
 
 -spec get_payments_ok_test(config()) ->
     _.
@@ -1486,7 +1495,8 @@ issue_dummy_token(ACL, Config) ->
 start_capi(Config) ->
     BlacklistedKeysDir = get_blacklisted_keys_dir(Config),
     file:make_dir(BlacklistedKeysDir),
-    JwkPath = get_keysource("keys/local/jwk.json", Config),
+    JwkPublSource = {json, {file, get_keysource("keys/local/jwk.publ.json", Config)}},
+    JwkPrivSource = {json, {file, get_keysource("keys/local/jwk.priv.json", Config)}},
     CapiEnv = [
         {ip, ?CAPI_IP},
         {port, ?CAPI_PORT},
@@ -1504,8 +1514,8 @@ start_capi(Config) ->
             blacklisted_keys_dir => BlacklistedKeysDir
         }},
         {lechiffre_opts,  #{
-            encryption_key_path => JwkPath,
-            decryption_key_paths => [JwkPath]
+            encryption_source => JwkPublSource,
+            decryption_sources => [JwkPrivSource]
         }}
     ],
     capi_ct_helper:start_app(capi, CapiEnv).

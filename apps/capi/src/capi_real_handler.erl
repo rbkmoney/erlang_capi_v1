@@ -1692,14 +1692,14 @@ create_payment(PartyID, InvoiceID, PaymentParams, Context, ReqCtx, BenderPrefix)
     Flow = genlib_map:get(<<"flow">>, PaymentParams, #{<<"type">> => <<"PaymentFlowInstant">>}),
     Payer = genlib_map:get(<<"payer">>, PaymentParams),
     UserInfo = get_user_info(Context),
-    Hash = erlang:phash2(PaymentParams),
-    {ok, ID} = capi_bender:gen_by_sequence(IdempotentKey, InvoiceID, Hash, ReqCtx),
     Params =  #payproc_InvoicePaymentParams{
-        id = ID,
         payer = encode_payer_params(Payer),
         flow = encode_flow(Flow)
     },
-    service_call(invoicing, 'StartPayment', [UserInfo, InvoiceID, Params], ReqCtx).
+    Hash = erlang:phash2(Params),
+    {ok, ID} = capi_bender:gen_by_sequence(IdempotentKey, InvoiceID, Hash, ReqCtx),
+    InvoicePaymentParams = Params#payproc_InvoicePaymentParams{id = ID},
+    service_call(invoicing, 'StartPayment', [UserInfo, InvoiceID, InvoicePaymentParams], ReqCtx).
 
 check_payment_institution(Realm, Residence, PaymentInstitution) ->
     check_payment_institution_realm(Realm, PaymentInstitution) andalso
