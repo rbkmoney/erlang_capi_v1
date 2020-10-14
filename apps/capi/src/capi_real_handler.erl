@@ -575,12 +575,9 @@ process_request('CreateRefund' = OperationID, Req, Context, ReqCtx) ->
                 #payproc_InvalidContractStatus{} ->
                     {ok, {400, #{}, logic_error(invalidContractStatus, <<"Invalid contract status">>)}};
                 #payproc_InsufficientAccountBalance{} ->
-                    {ok,
-                        {400, #{},
-                            logic_error(
-                                insufficentAccountBalance,
-                                <<"Operation can not be conducted because of insufficient funds on the merchant account">>
-                            )}};
+                    Message =
+                        <<"Operation can not be conducted because of insufficient funds on the merchant account">>,
+                    {ok, {400, #{}, logic_error(insufficentAccountBalance, Message)}};
                 #payproc_InvoicePaymentAmountExceeded{} ->
                     {ok, {400, #{}, logic_error(invoicePaymentAmountExceeded, <<"Payment amount exceeded">>)}};
                 #payproc_InconsistentRefundCurrency{} ->
