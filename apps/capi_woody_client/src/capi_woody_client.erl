@@ -9,15 +9,11 @@
 
 -type service_name() :: atom().
 
--spec call_service(service_name(), woody:func(), [term()], woody_context:ctx()) ->
-    woody:result().
-
+-spec call_service(service_name(), woody:func(), [term()], woody_context:ctx()) -> woody:result().
 call_service(ServiceName, Function, Args, Context) ->
     call_service(ServiceName, Function, Args, Context, scoper_woody_event_handler).
 
--spec call_service(service_name(), woody:func(), [term()], woody_context:ctx(), woody:ev_handler()) ->
-    woody:result().
-
+-spec call_service(service_name(), woody:func(), [term()], woody_context:ctx(), woody:ev_handler()) -> woody:result().
 call_service(ServiceName, Function, Args, Context0, EventHandler) ->
     Deadline = get_service_deadline(ServiceName),
     Context1 = set_deadline(Deadline, Context0),
@@ -35,8 +31,8 @@ call_service(ServiceName, Function, Args, Context, EventHandler, Retry) ->
             Context
         )
     catch
-        error:{woody_error, {_Source, Class, _Details}} = Error
-        when Class =:= resource_unavailable orelse Class =:= result_unknown
+        error:{woody_error, {_Source, Class, _Details}} = Error when
+            Class =:= resource_unavailable orelse Class =:= result_unknown
         ->
             NextRetry = apply_retry_strategy(Retry, Error, Context),
             call_service(ServiceName, Function, Args, Context, EventHandler, NextRetry)
@@ -67,7 +63,6 @@ get_service_url(ServiceName) ->
     maps:get(ServiceName, genlib_app:env(?MODULE, service_urls)).
 
 -spec get_service_modname(service_name()) -> woody:service().
-
 get_service_modname(invoicing) ->
     {dmsl_payment_processing_thrift, 'Invoicing'};
 get_service_modname(invoice_templating) ->

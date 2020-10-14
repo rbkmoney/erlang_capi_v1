@@ -10,9 +10,7 @@
 
 -type value() :: term().
 
--spec marshal(value()) ->
-    dmsl_json_thrift:'Value'() | no_return().
-
+-spec marshal(value()) -> dmsl_json_thrift:'Value'() | no_return().
 marshal(undefined) ->
     {nl, #json_Null{}};
 marshal(Boolean) when is_boolean(Boolean) ->
@@ -26,19 +24,18 @@ marshal(String) when is_binary(String) ->
 marshal({bin, Binary}) ->
     {bin, Binary};
 marshal(Object) when is_map(Object) ->
-    {obj, maps:fold(
-        fun(K, V, Acc) when is_binary(K)->
-            maps:put(K, marshal(V), Acc)
-        end,
-        #{},
-        Object
-    )};
+    {obj,
+        maps:fold(
+            fun(K, V, Acc) when is_binary(K) ->
+                maps:put(K, marshal(V), Acc)
+            end,
+            #{},
+            Object
+        )};
 marshal(Array) when is_list(Array) ->
     {arr, lists:map(fun marshal/1, Array)}.
 
--spec unmarshal(dmsl_json_thrift:'Value'()) ->
-    value().
-
+-spec unmarshal(dmsl_json_thrift:'Value'()) -> value().
 unmarshal({nl, #json_Null{}}) ->
     undefined;
 unmarshal({b, Boolean}) ->
@@ -55,4 +52,3 @@ unmarshal({obj, Object}) ->
     maps:fold(fun(K, V, Acc) -> maps:put(K, unmarshal(V), Acc) end, #{}, Object);
 unmarshal({arr, Array}) ->
     lists:map(fun unmarshal/1, Array).
-
