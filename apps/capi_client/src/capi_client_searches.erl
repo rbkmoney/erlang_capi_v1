@@ -19,7 +19,8 @@ search_invoices(Context, ShopID, Query) ->
     case capi_client_lib:handle_response(Response) of
         {ok, #{<<"result">> := Invoices} = Res} ->
             {ok, genlib_map:get(<<"totalCount">>, Res), Invoices};
-        {error, Error} -> {error, Error}
+        {error, Error} ->
+            {error, Error}
     end.
 
 -spec search_payments(context(), binary(), search_query()) -> {ok, term(), term()} | {error, term()}.
@@ -34,7 +35,8 @@ search_payments(Context, ShopID, Query) ->
     case capi_client_lib:handle_response(Response) of
         {ok, #{<<"result">> := Payments} = Res} ->
             {ok, genlib_map:get(<<"totalCount">>, Res), Payments};
-        {error, Error} -> {error, Error}
+        {error, Error} ->
+            {error, Error}
     end.
 
 -spec search_payouts(context(), binary(), search_query()) -> {ok, term(), term()} | {error, term()}.
@@ -49,5 +51,6 @@ search_payouts(Context, ShopID, Query) ->
     case capi_client_lib:handle_response(Response) of
         {ok, #{<<"result">> := Payments} = Res} ->
             {ok, genlib_map:get(<<"totalCount">>, Res), Payments};
-        {error, Error} -> {error, Error}
+        {error, Error} ->
+            {error, Error}
     end.
