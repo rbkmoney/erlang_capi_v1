@@ -737,9 +737,9 @@ create_payment_with_encrypt_token_ok_test(Config) ->
                 {ok, ?PAYPROC_PAYMENT}
             end},
             {bender, fun
-                ('GenerateID', [_, {sequence,  _}, CtxMsgPack]) ->
+                ('GenerateID', [_, {sequence, _}, CtxMsgPack]) ->
                     capi_ct_helper_bender:get_internal_id(Tid, BenderKey, CtxMsgPack);
-                ('GenerateID', [_, {constant,  _}, _]) ->
+                ('GenerateID', [_, {constant, _}, _]) ->
                     {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
             end}
         ],
@@ -765,15 +765,15 @@ create_payment_with_encrypt_token_ok_test(Config) ->
     capi_ct_helper_bender:del_storage(Tid).
 
 get_encrypted_token() ->
-    PaymentTool = {bank_card, #domain_BankCard{
-        token = <<"4111111111111111">>,
-        payment_system = mastercard,
-        bin = <<>>,
-        last_digits = <<"1111">>,
-        cardholder_name = <<"Degus Degusovich">>
-    }},
+    PaymentTool =
+        {bank_card, #domain_BankCard{
+            token = <<"4111111111111111">>,
+            payment_system = mastercard,
+            bin = <<>>,
+            last_digits = <<"1111">>,
+            cardholder_name = <<"Degus Degusovich">>
+        }},
     capi_crypto:create_encrypted_payment_tool_token(PaymentTool).
-
 
 -spec get_payments_ok_test(config()) -> _.
 get_payments_ok_test(Config) ->
@@ -1457,7 +1457,7 @@ start_capi(Config) ->
             update_interval => 50000,
             blacklisted_keys_dir => BlacklistedKeysDir
         }},
-        {lechiffre_opts,  #{
+        {lechiffre_opts, #{
             encryption_source => JwkPublSource,
             decryption_sources => [JwkPrivSource]
         }}

@@ -21,8 +21,8 @@ get_result(ID) ->
 get_result(ID, Context) ->
     #bender_GenerationResult{
         internal_id = ID,
-        context     = Context
-}.
+        context = Context
+    }.
 
 -spec create_storage() -> tid().
 -spec del_storage(tid()) -> ok.
@@ -37,9 +37,12 @@ del_storage(Tid) ->
 get_internal_id(Tid, IdempotentKey, MsgPack) ->
     case ets:lookup(Tid, IdempotentKey) of
         [] ->
-            ets:insert(Tid, {IdempotentKey, #{
-                ctx => MsgPack
-            }}),
+            ets:insert(
+                Tid,
+                {IdempotentKey, #{
+                    ctx => MsgPack
+                }}
+            ),
             {ok, get_result(IdempotentKey)};
         [{IdempotentKey, #{ctx := Ctx}}] ->
             {ok, get_result(IdempotentKey, Ctx)}

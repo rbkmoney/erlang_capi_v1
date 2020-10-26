@@ -1620,7 +1620,7 @@ create_payment(PartyID, InvoiceID, PaymentParams, Context, ReqCtx, BenderPrefix)
     Flow = genlib_map:get(<<"flow">>, PaymentParams, #{<<"type">> => <<"PaymentFlowInstant">>}),
     Payer = genlib_map:get(<<"payer">>, PaymentParams),
     UserInfo = get_user_info(Context),
-    Params =  #payproc_InvoicePaymentParams{
+    Params = #payproc_InvoicePaymentParams{
         payer = encode_payer_params(Payer),
         flow = encode_flow(Flow)
     },
