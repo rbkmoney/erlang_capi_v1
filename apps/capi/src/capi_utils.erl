@@ -12,14 +12,14 @@
 -export([define/2]).
 
 -spec logtag_process(atom(), any()) -> ok.
-
 logtag_process(Key, Value) when is_atom(Key) ->
     % TODO preformat into binary?
     logger:update_process_metadata(#{Key => Value}).
 
 -spec base64url_to_map(binary()) -> map() | no_return().
 base64url_to_map(Base64) when is_binary(Base64) ->
-    try jsx:decode(base64url:decode(Base64), [return_maps])
+    try
+        jsx:decode(base64url:decode(Base64), [return_maps])
     catch
         Class:Reason ->
             _ = logger:debug("decoding base64 ~p to map failed with ~p:~p", [Base64, Class, Reason]),
@@ -28,7 +28,8 @@ base64url_to_map(Base64) when is_binary(Base64) ->
 
 -spec map_to_base64url(map()) -> binary() | no_return().
 map_to_base64url(Map) when is_map(Map) ->
-    try base64url:encode(jsx:encode(Map))
+    try
+        base64url:encode(jsx:encode(Map))
     catch
         Class:Reason ->
             _ = logger:debug("encoding map ~p to base64 failed with ~p:~p", [Map, Class, Reason]),
@@ -55,8 +56,7 @@ to_universal_time(Timestamp) ->
     Microsecs = genlib_rfc3339:parse(Timestamp, microsecond),
     genlib_rfc3339:format_relaxed(Microsecs, microsecond).
 
--spec unwrap(ok | {ok, Value} | {error, _Error}) ->
-    Value | no_return().
+-spec unwrap(ok | {ok, Value} | {error, _Error}) -> Value | no_return().
 unwrap(ok) ->
     ok;
 unwrap({ok, Value}) ->
@@ -78,8 +78,9 @@ define(V, _Default) ->
 -spec test() -> _.
 
 -spec to_universal_time_test() -> _.
+
 to_universal_time_test() ->
-    ?assertEqual(<<"2017-04-19T13:56:07Z">>,        to_universal_time(<<"2017-04-19T13:56:07Z">>)),
+    ?assertEqual(<<"2017-04-19T13:56:07Z">>, to_universal_time(<<"2017-04-19T13:56:07Z">>)),
     ?assertEqual(<<"2017-04-19T13:56:07.530Z">>, to_universal_time(<<"2017-04-19T13:56:07.53Z">>)),
     ?assertEqual(<<"2017-04-19T10:36:07.530Z">>, to_universal_time(<<"2017-04-19T13:56:07.53+03:20">>)),
     ?assertEqual(<<"2017-04-19T17:16:07.530Z">>, to_universal_time(<<"2017-04-19T13:56:07.53-03:20">>)).
@@ -88,6 +89,6 @@ to_universal_time_test() ->
 redact_test() ->
     P1 = <<"^\\+\\d(\\d{1,10}?)\\d{2,4}$">>,
     ?assertEqual(<<"+7******3210">>, redact(<<"+79876543210">>, P1)),
-    ?assertEqual(       <<"+1*11">>, redact(<<"+1111">>, P1)).
+    ?assertEqual(<<"+1*11">>, redact(<<"+1111">>, P1)).
 
 -endif.

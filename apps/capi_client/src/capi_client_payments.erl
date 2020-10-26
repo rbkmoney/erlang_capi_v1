@@ -17,7 +17,7 @@ get_payments(Context, InvoiceID) ->
         binding => #{
             <<"invoiceID">> => InvoiceID
         }
-     },
+    },
     {Url, PreparedParams, Opts} = capi_client_lib:make_request(Context, Params),
     Response = swag_client_payments_api:get_payments(Url, PreparedParams, Opts),
     capi_client_lib:handle_response(Response).
@@ -96,7 +96,7 @@ get_refund_by_id(Context, InvoiceID, PaymentID, RefundID) ->
         binding => #{
             <<"invoiceID">> => InvoiceID,
             <<"paymentID">> => PaymentID,
-            <<"refundID">>  => RefundID
+            <<"refundID">> => RefundID
         }
     },
     {Url, PreparedParams, Opts} = capi_client_lib:make_request(Context, Params),
@@ -115,4 +115,3 @@ create_refund(Context, Request, InvoiceID, PaymentID) ->
     {Url, PreparedParams, Opts} = capi_client_lib:make_request(Context, Params),
     Response = swag_client_payments_api:create_refund(Url, PreparedParams, Opts),
     capi_client_lib:handle_response(Response).
-

@@ -44,4 +44,3 @@ get_internal_id(Tid, IdempotentKey, MsgPack) ->
         [{IdempotentKey, #{ctx := Ctx}}] ->
             {ok, get_result(IdempotentKey, Ctx)}
     end.
-

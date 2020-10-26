@@ -6,18 +6,18 @@
 
 -type testcase() :: {_, fun()}.
 
--spec illegal_input_test_()   -> [testcase()].
--spec empty_test_()           -> [testcase()].
+-spec illegal_input_test_() -> [testcase()].
+-spec empty_test_() -> [testcase()].
 -spec stable_encoding_test_() -> [testcase()].
--spec remove_scopes_test_()   -> [testcase()].
--spec redundancy_test_()      -> [testcase()].
--spec match_scope_test_()     -> [testcase()].
+-spec remove_scopes_test_() -> [testcase()].
+-spec redundancy_test_() -> [testcase()].
+-spec match_scope_test_() -> [testcase()].
 
 illegal_input_test_() ->
     [
-        ?_assertError({badarg, {scope     , _}}, from_list([{[], read}])),
+        ?_assertError({badarg, {scope, _}}, from_list([{[], read}])),
         ?_assertError({badarg, {permission, _}}, from_list([{[invoices], wread}])),
-        ?_assertError({badarg, {resource  , _}}, from_list([{[payments], read}]))
+        ?_assertError({badarg, {resource, _}}, from_list([{[payments], read}]))
     ].
 
 empty_test_() ->
@@ -61,9 +61,15 @@ remove_scopes_test_() ->
         ),
         ?_assertEqual(
             new(),
-            remove([party], read,
-                remove([party], write,
-                    remove([party], read,
+            remove(
+                [party],
+                read,
+                remove(
+                    [party],
+                    write,
+                    remove(
+                        [party],
+                        read,
                         from_list([{[party], read}, {[party], write}])
                     )
                 )
@@ -81,13 +87,13 @@ match_scope_test_() ->
         {[{invoices, <<"42">>}, payments], read}
     ]),
     [
-        ?_assertError({badarg, _}   , match([], ACL)),
-        ?_assertEqual([write]       , match([{invoices, <<"42">>}], ACL)),
-        ?_assertEqual([read]        , match([{invoices, <<"43">>}], ACL)),
-        ?_assertEqual([read]        , match([{invoices, <<"42">>}, {payments, <<"1">>}], ACL)),
-        ?_assertEqual([write]       , match([{invoices, <<"43">>}, {payments, <<"1">>}], ACL)),
-        ?_assertEqual([read, write] , match([{party, <<"BLARGH">>}], ACL)),
-        ?_assertEqual([]            , match([payment_resources], ACL))
+        ?_assertError({badarg, _}, match([], ACL)),
+        ?_assertEqual([write], match([{invoices, <<"42">>}], ACL)),
+        ?_assertEqual([read], match([{invoices, <<"43">>}], ACL)),
+        ?_assertEqual([read], match([{invoices, <<"42">>}, {payments, <<"1">>}], ACL)),
+        ?_assertEqual([write], match([{invoices, <<"43">>}, {payments, <<"1">>}], ACL)),
+        ?_assertEqual([read, write], match([{party, <<"BLARGH">>}], ACL)),
+        ?_assertEqual([], match([payment_resources], ACL))
     ].
 
 new() ->

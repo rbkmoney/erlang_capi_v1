@@ -21,9 +21,9 @@
 -define(SHA256, <<"94EE059335E587E501CC4BF90613E0814F00A7B08BC7C648FD865A2AF6A22CC2">>).
 
 -define(DETAILS, #domain_InvoiceDetails{
-        product = ?STRING,
-        description = ?STRING
-    }).
+    product = ?STRING,
+    description = ?STRING
+}).
 
 -define(CASH, #domain_Cash{
     amount = ?INTEGER,
@@ -45,8 +45,7 @@
 
 -define(TPL_CASH, {fixed, ?CASH}).
 
--define(
-    INVOICE_STATUS(Status),
+-define(INVOICE_STATUS(Status),
     case Status of
         unpaid ->
             {unpaid, #domain_InvoiceUnpaid{}};
@@ -60,15 +59,15 @@
 ).
 
 -define(INVOICE, #domain_Invoice{
-    id          = ?STRING,
-    created_at  = ?TIMESTAMP,
-    status      = ?INVOICE_STATUS(unpaid),
-    due         = ?TIMESTAMP,
-    details     = ?DETAILS,
-    cost        = ?CASH,
-    context     = ?CONTENT,
-    shop_id     = ?STRING,
-    owner_id    = ?STRING,
+    id = ?STRING,
+    created_at = ?TIMESTAMP,
+    status = ?INVOICE_STATUS(unpaid),
+    due = ?TIMESTAMP,
+    details = ?DETAILS,
+    cost = ?CASH,
+    context = ?CONTENT,
+    shop_id = ?STRING,
+    owner_id = ?STRING,
     template_id = ?STRING
 }).
 
@@ -85,16 +84,17 @@
 }).
 
 -define(INVOICE_TPL, #domain_InvoiceTemplate{
-    id          = ?STRING,
-    details     = {product, #domain_InvoiceTemplateProduct{
-        product = ?STRING,
-        price = ?TPL_CASH,
-        metadata = #{?STRING => {obj, #{}}}
-    }},
-    product     = ?STRING,
-    context     = ?CONTENT,
-    shop_id     = ?STRING,
-    owner_id    = ?STRING,
+    id = ?STRING,
+    details =
+        {product, #domain_InvoiceTemplateProduct{
+            product = ?STRING,
+            price = ?TPL_CASH,
+            metadata = #{?STRING => {obj, #{}}}
+        }},
+    product = ?STRING,
+    context = ?CONTENT,
+    shop_id = ?STRING,
+    owner_id = ?STRING,
     invoice_lifetime = ?LIFETIME_INTERVAL
 }).
 
@@ -106,9 +106,9 @@
 }).
 
 -define(CONTACT_INFO, #domain_ContactInfo{
-        phone_number = ?STRING,
-        email = <<"test@test.ru">>
-    }).
+    phone_number = ?STRING,
+    email = <<"test@test.ru">>
+}).
 
 -define(DISP_PAYMENT_RESOURCE, #domain_DisposablePaymentResource{
     payment_tool = {bank_card, ?BANK_CARD},
@@ -128,14 +128,14 @@
 
 -define(PAYMENT, ?PAYMENT({pending, #domain_InvoicePaymentPending{}})).
 -define(PAYMENT(Status), #domain_InvoicePayment{
-    id              = ?STRING,
-    created_at      = ?TIMESTAMP,
+    id = ?STRING,
+    created_at = ?TIMESTAMP,
     domain_revision = ?INTEGER,
-    status          = Status,
-    payer           = ?PAYER,
-    cost            = ?CASH,
-    flow            = {instant, #domain_InvoicePaymentFlowInstant{}},
-    context         = ?CONTENT
+    status = Status,
+    payer = ?PAYER,
+    cost = ?CASH,
+    flow = {instant, #domain_InvoicePaymentFlowInstant{}},
+    context = ?CONTENT
 }).
 
 -define(PAYPROC_PAYMENT(Payment), #payproc_InvoicePayment{
@@ -143,9 +143,11 @@
     refunds = [?REFUND],
     legacy_refunds = [?REFUND_DOMAIN],
     adjustments = [?ADJUSTMENT],
-    sessions = [#payproc_InvoicePaymentSession{
-        target_status = {processed, #domain_InvoicePaymentProcessed{}}
-    }]
+    sessions = [
+        #payproc_InvoicePaymentSession{
+            target_status = {processed, #domain_InvoicePaymentProcessed{}}
+        }
+    ]
 }).
 
 -define(PAYPROC_PAYMENT, ?PAYPROC_PAYMENT(?PAYMENT)).
@@ -190,15 +192,20 @@
     status = {active, #domain_ContractActive{}},
     terms = #domain_TermSetHierarchyRef{id = ?INTEGER},
     adjustments = [?CONTRACT_ADJUSTMENT],
-    payout_tools = [?PAYOUT_TOOL(?BANKID_RU, ?RUSSIAN_BANK_ACCOUNT), ?PAYOUT_TOOL(?BANKID_US, ?INTERNATIONAL_BANK_ACCOUNT)]
+    payout_tools = [
+        ?PAYOUT_TOOL(?BANKID_RU, ?RUSSIAN_BANK_ACCOUNT),
+        ?PAYOUT_TOOL(?BANKID_US, ?INTERNATIONAL_BANK_ACCOUNT)
+    ]
 }).
 
 -define(CONTRACTOR, {registered_user, #domain_RegisteredUser{email = ?STRING}}).
 
--define(BLOCKING, {unblocked, #domain_Unblocked{
+-define(BLOCKING,
+    {unblocked, #domain_Unblocked{
         reason = ?STRING,
         since = ?TIMESTAMP
-}}).
+    }}
+).
 
 -define(SUSPENTION, {active, #domain_Active{since = ?TIMESTAMP}}).
 
@@ -219,12 +226,14 @@
 
 -define(PARTY_CONTRACTOR, #domain_PartyContractor{
     id = ?STRING,
-    contractor = {private_entity, {russian_private_entity, #domain_RussianPrivateEntity{
-        first_name = ?STRING,
-        second_name = ?STRING,
-        middle_name = ?STRING,
-        contact_info = #domain_ContactInfo{}
-    }}},
+    contractor =
+        {private_entity,
+            {russian_private_entity, #domain_RussianPrivateEntity{
+                first_name = ?STRING,
+                second_name = ?STRING,
+                middle_name = ?STRING,
+                contact_info = #domain_ContactInfo{}
+            }}},
     status = none,
     identity_documents = []
 }).
@@ -281,66 +290,75 @@
     %% contract modifications
     {contract_modification, #payproc_ContractModificationUnit{
         id = ?STRING,
-        modification = {creation, #payproc_ContractParams{
-            contractor = ?CONTRACTOR,
-            payment_institution = #domain_PaymentInstitutionRef{id = ?INTEGER}
-        }}
-    }},
-    {contract_modification, #payproc_ContractModificationUnit{
-        id = ?STRING,
-        modification = {termination, #payproc_ContractTermination{
-            reason = ?STRING
-        }}
-    }},
-    {contract_modification, #payproc_ContractModificationUnit{
-        id = ?STRING,
-        modification = {adjustment_modification, #payproc_ContractAdjustmentModificationUnit{
-            adjustment_id = ?STRING,
-            modification = {creation, #payproc_ContractAdjustmentParams{
-                template = #domain_ContractTemplateRef{id = ?INTEGER}
+        modification =
+            {creation, #payproc_ContractParams{
+                contractor = ?CONTRACTOR,
+                payment_institution = #domain_PaymentInstitutionRef{id = ?INTEGER}
             }}
-        }}
     }},
     {contract_modification, #payproc_ContractModificationUnit{
         id = ?STRING,
-        modification = {payout_tool_modification, #payproc_PayoutToolModificationUnit{
-            payout_tool_id = ?STRING,
-            modification = {creation, #payproc_PayoutToolParams{
-                currency = #domain_CurrencyRef{symbolic_code = ?RUB},
-                tool_info = ?RUSSIAN_BANK_ACCOUNT
+        modification =
+            {termination, #payproc_ContractTermination{
+                reason = ?STRING
             }}
-        }}
     }},
     {contract_modification, #payproc_ContractModificationUnit{
         id = ?STRING,
-        modification = {legal_agreement_binding, #domain_LegalAgreement{
-            signed_at = ?TIMESTAMP,
-            legal_agreement_id = ?STRING,
-            valid_until = ?TIMESTAMP
-        }}
+        modification =
+            {adjustment_modification, #payproc_ContractAdjustmentModificationUnit{
+                adjustment_id = ?STRING,
+                modification =
+                    {creation, #payproc_ContractAdjustmentParams{
+                        template = #domain_ContractTemplateRef{id = ?INTEGER}
+                    }}
+            }}
     }},
     {contract_modification, #payproc_ContractModificationUnit{
         id = ?STRING,
-        modification = {report_preferences_modification, #domain_ReportPreferences{
-            service_acceptance_act_preferences = #domain_ServiceAcceptanceActPreferences{
-                schedule = #domain_BusinessScheduleRef{id = ?INTEGER},
-                signer = #domain_Representative{
-                    position  = ?STRING,
-                    full_name = ?STRING,
-                    document  = {articles_of_association, #domain_ArticlesOfAssociation{}}
+        modification =
+            {payout_tool_modification, #payproc_PayoutToolModificationUnit{
+                payout_tool_id = ?STRING,
+                modification =
+                    {creation, #payproc_PayoutToolParams{
+                        currency = #domain_CurrencyRef{symbolic_code = ?RUB},
+                        tool_info = ?RUSSIAN_BANK_ACCOUNT
+                    }}
+            }}
+    }},
+    {contract_modification, #payproc_ContractModificationUnit{
+        id = ?STRING,
+        modification =
+            {legal_agreement_binding, #domain_LegalAgreement{
+                signed_at = ?TIMESTAMP,
+                legal_agreement_id = ?STRING,
+                valid_until = ?TIMESTAMP
+            }}
+    }},
+    {contract_modification, #payproc_ContractModificationUnit{
+        id = ?STRING,
+        modification =
+            {report_preferences_modification, #domain_ReportPreferences{
+                service_acceptance_act_preferences = #domain_ServiceAcceptanceActPreferences{
+                    schedule = #domain_BusinessScheduleRef{id = ?INTEGER},
+                    signer = #domain_Representative{
+                        position = ?STRING,
+                        full_name = ?STRING,
+                        document = {articles_of_association, #domain_ArticlesOfAssociation{}}
+                    }
                 }
-            }
-        }}
+            }}
     }},
     %% shop modifications
     {shop_modification, #payproc_ShopModificationUnit{
         id = ?STRING,
-        modification = {creation, #payproc_ShopParams{
-            location =  ?SHOP_LOCATION,
-            details = ?SHOP_DETAILS,
-            contract_id = ?STRING,
-            payout_tool_id = ?STRING
-        }}
+        modification =
+            {creation, #payproc_ShopParams{
+                location = ?SHOP_LOCATION,
+                details = ?SHOP_DETAILS,
+                contract_id = ?STRING,
+                payout_tool_id = ?STRING
+            }}
     }},
     {shop_modification, #payproc_ShopModificationUnit{
         id = ?STRING,
@@ -352,10 +370,11 @@
     }},
     {shop_modification, #payproc_ShopModificationUnit{
         id = ?STRING,
-        modification = {contract_modification, #payproc_ShopContractModification{
-            contract_id = ?STRING,
-            payout_tool_id = ?STRING
-        }}
+        modification =
+            {contract_modification, #payproc_ShopContractModification{
+                contract_id = ?STRING,
+                payout_tool_id = ?STRING
+            }}
     }},
     {shop_modification, #payproc_ShopModificationUnit{
         id = ?STRING,
@@ -367,15 +386,17 @@
     }},
     {shop_modification, #payproc_ShopModificationUnit{
         id = ?STRING,
-        modification = {shop_account_creation, #payproc_ShopAccountParams{
-            currency = #domain_CurrencyRef{symbolic_code = ?RUB}
-        }}
+        modification =
+            {shop_account_creation, #payproc_ShopAccountParams{
+                currency = #domain_CurrencyRef{symbolic_code = ?RUB}
+            }}
     }},
     {shop_modification, #payproc_ShopModificationUnit{
         id = ?STRING,
-        modification = {payout_schedule_modification, #payproc_ScheduleModification{
-            schedule = #domain_BusinessScheduleRef{id = ?INTEGER}
-        }}
+        modification =
+            {payout_schedule_modification, #payproc_ScheduleModification{
+                schedule = #domain_BusinessScheduleRef{id = ?INTEGER}
+            }}
     }}
 ]).
 
@@ -391,9 +412,10 @@
     }},
     {contractor_modification, #payproc_ContractorModificationUnit{
         id = ?STRING,
-        modification = {identity_documents_modification, #payproc_ContractorIdentityDocumentsModification{
-            identity_documents = []
-        }}
+        modification =
+            {identity_documents_modification, #payproc_ContractorIdentityDocumentsModification{
+                identity_documents = []
+            }}
     }}
 ]).
 
@@ -401,10 +423,11 @@
     %% wallet modifications
     {wallet_modification, #payproc_WalletModificationUnit{
         id = ?STRING,
-        modification = {creation, #payproc_WalletParams{
-            name = ?STRING,
-            contract_id = ?WALLET_CONTRACT_ID
-        }}
+        modification =
+            {creation, #payproc_WalletParams{
+                name = ?STRING,
+                contract_id = ?WALLET_CONTRACT_ID
+            }}
     }}
 ]).
 
@@ -433,20 +456,24 @@
     payout_tool_info = ToolInfo
 }).
 
--define(RUSSIAN_BANK_ACCOUNT, {russian_bank_account, #domain_RussianBankAccount{
-    account = <<"12345678901234567890">>,
-    bank_name = ?STRING,
-    bank_post_account = <<"12345678901234567890">>,
-    bank_bik = <<"123456789">>
-}}).
+-define(RUSSIAN_BANK_ACCOUNT,
+    {russian_bank_account, #domain_RussianBankAccount{
+        account = <<"12345678901234567890">>,
+        bank_name = ?STRING,
+        bank_post_account = <<"12345678901234567890">>,
+        bank_bik = <<"123456789">>
+    }}
+).
 
--define(INTERNATIONAL_BANK_ACCOUNT, {international_bank_account, #domain_InternationalBankAccount{
-    number = <<"12345678901234567890">>,
-    bank = ?INTERNATIONAL_BANK_DETAILS,
-    correspondent_account = #domain_InternationalBankAccount{number = <<"00000000000000000000">>},
-    iban = <<"GR1601101250000000012300695">>,
-    account_holder = ?STRING
-}}).
+-define(INTERNATIONAL_BANK_ACCOUNT,
+    {international_bank_account, #domain_InternationalBankAccount{
+        number = <<"12345678901234567890">>,
+        bank = ?INTERNATIONAL_BANK_DETAILS,
+        correspondent_account = #domain_InternationalBankAccount{number = <<"00000000000000000000">>},
+        iban = <<"GR1601101250000000012300695">>,
+        account_holder = ?STRING
+    }}
+).
 
 -define(INTERNATIONAL_BANK_DETAILS, #domain_InternationalBankDetails{
     %% In reality either bic or aba_rtn should be used, not both.
@@ -455,43 +482,48 @@
     name = ?STRING,
     address = ?STRING,
     aba_rtn = <<"129131673">>
- }).
+}).
 
 -define(WEBHOOK, #webhooker_Webhook{
     id = ?INTEGER,
     party_id = ?STRING,
-    event_filter = {invoice, #webhooker_InvoiceEventFilter{
-        shop_id = ?STRING,
-        types = [{created, #webhooker_InvoiceCreated{}}]
-    }},
+    event_filter =
+        {invoice, #webhooker_InvoiceEventFilter{
+            shop_id = ?STRING,
+            types = [{created, #webhooker_InvoiceCreated{}}]
+        }},
     url = ?STRING,
     pub_key = ?STRING,
     enabled = true
 }).
 
--define (STAT_RESPONSE(Data), #merchstat_StatResponse{
+-define(STAT_RESPONSE(Data), #merchstat_StatResponse{
     data = Data
 }).
 
 -define(STAT_RESPONSE_INVOICES, ?STAT_RESPONSE({invoices, [?STAT_INVOICE]})).
 
--define(STAT_RESPONSE_PAYMENTS, ?STAT_RESPONSE({payments,
-    [
-        ?STAT_PAYMENT(?STAT_PAYER({bank_card, ?STAT_BANK_CARD})),
-        ?STAT_PAYMENT(?STAT_PAYER({bank_card, ?STAT_BANK_CARD_WITH_TP}))
-    ]
-})).
+-define(STAT_RESPONSE_PAYMENTS,
+    ?STAT_RESPONSE(
+        {payments, [
+            ?STAT_PAYMENT(?STAT_PAYER({bank_card, ?STAT_BANK_CARD})),
+            ?STAT_PAYMENT(?STAT_PAYER({bank_card, ?STAT_BANK_CARD_WITH_TP}))
+        ]}
+    )
+).
 
 -define(STAT_RESPONSE_RECORDS, ?STAT_RESPONSE({records, [?STAT_RECORD]})).
 
--define(STAT_RESPONSE_PAYOUTS, ?STAT_RESPONSE({payouts,
-    [
-        ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD}}, [?PAYOUT_SUMMARY_ITEM]),
-        ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD_WITH_TP}}, [?PAYOUT_SUMMARY_ITEM]),
-        ?STAT_PAYOUT({bank_account, ?STAT_PAYOUT_BANK_ACCOUNT_RUS}, undefined),
-        ?STAT_PAYOUT({bank_account, ?STAT_PAYOUT_BANK_ACCOUNT_INT}, [?PAYOUT_SUMMARY_ITEM])
-    ]
-})).
+-define(STAT_RESPONSE_PAYOUTS,
+    ?STAT_RESPONSE(
+        {payouts, [
+            ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD}}, [?PAYOUT_SUMMARY_ITEM]),
+            ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD_WITH_TP}}, [?PAYOUT_SUMMARY_ITEM]),
+            ?STAT_PAYOUT({bank_account, ?STAT_PAYOUT_BANK_ACCOUNT_RUS}, undefined),
+            ?STAT_PAYOUT({bank_account, ?STAT_PAYOUT_BANK_ACCOUNT_INT}, [?PAYOUT_SUMMARY_ITEM])
+        ]}
+    )
+).
 
 -define(STAT_INVOICE, #merchstat_StatInvoice{
     id = ?STRING,
@@ -501,7 +533,7 @@
     status = {unpaid, #merchstat_InvoiceUnpaid{}},
     product = ?STRING,
     description = ?STRING,
-    due  = ?TIMESTAMP,
+    due = ?TIMESTAMP,
     amount = ?INTEGER,
     currency_symbolic_code = ?RUB,
     context = ?CONTENT
@@ -523,14 +555,16 @@
     domain_revision = ?INTEGER
 }).
 
--define (STAT_PAYER(PaymentTool), {payment_resource, #merchstat_PaymentResourcePayer{
-    payment_tool = PaymentTool,
-    ip_address = ?STRING,
-    fingerprint = ?STRING,
-    phone_number = ?STRING,
-    email = <<"test@test.ru">>,
-    session_id = ?STRING
-}}).
+-define(STAT_PAYER(PaymentTool),
+    {payment_resource, #merchstat_PaymentResourcePayer{
+        payment_tool = PaymentTool,
+        ip_address = ?STRING,
+        fingerprint = ?STRING,
+        phone_number = ?STRING,
+        email = <<"test@test.ru">>,
+        session_id = ?STRING
+    }}
+).
 
 -define(STAT_RECORD, #{
     <<"offset">> => ?INTEGER_BINARY,
@@ -558,27 +592,31 @@
     summary = PayoutSummary
 }).
 
--define(STAT_PAYOUT_BANK_ACCOUNT_RUS, {russian_payout_account, #merchstat_RussianPayoutAccount{
-    bank_account = #merchstat_RussianBankAccount{
-        account = <<"12345678901234567890">>,
-        bank_name = ?STRING,
-        bank_post_account = <<"12345678901234567890">>,
-        bank_bik = <<"123456789">>
-    },
-    inn = ?STRING,
-    purpose = ?STRING
-}}).
+-define(STAT_PAYOUT_BANK_ACCOUNT_RUS,
+    {russian_payout_account, #merchstat_RussianPayoutAccount{
+        bank_account = #merchstat_RussianBankAccount{
+            account = <<"12345678901234567890">>,
+            bank_name = ?STRING,
+            bank_post_account = <<"12345678901234567890">>,
+            bank_bik = <<"123456789">>
+        },
+        inn = ?STRING,
+        purpose = ?STRING
+    }}
+).
 
--define(STAT_PAYOUT_BANK_ACCOUNT_INT, {international_payout_account, #merchstat_InternationalPayoutAccount{
-    bank_account = #merchstat_InternationalBankAccount{
-        number = <<"12345678901234567890">>,
-        bank = ?STAT_PAYOUT_BANK_DETAILS_INT,
-        correspondent_account = #merchstat_InternationalBankAccount{number = <<"00000000000000000000">>},
-        iban = <<"GR1601101250000000012300695">>,
-        account_holder = ?STRING
-    },
-    purpose = ?STRING
-}}).
+-define(STAT_PAYOUT_BANK_ACCOUNT_INT,
+    {international_payout_account, #merchstat_InternationalPayoutAccount{
+        bank_account = #merchstat_InternationalBankAccount{
+            number = <<"12345678901234567890">>,
+            bank = ?STAT_PAYOUT_BANK_DETAILS_INT,
+            correspondent_account = #merchstat_InternationalBankAccount{number = <<"00000000000000000000">>},
+            iban = <<"GR1601101250000000012300695">>,
+            account_holder = ?STRING
+        },
+        purpose = ?STRING
+    }}
+).
 
 -define(STAT_PAYOUT_BANK_DETAILS_INT, #merchstat_InternationalBankDetails{
     %% In reality either bic or aba_rtn should be used, not both.
@@ -660,137 +698,142 @@
     domain = #{
         {globals, #domain_GlobalsRef{}} => ?GLOBALS,
         {category, #domain_CategoryRef{id = ?INTEGER}} =>
-        {category, #domain_CategoryObject{
-            ref = #domain_CategoryRef{id = ?INTEGER},
-            data = #domain_Category{
-                name = ?STRING,
-                description = ?STRING
-            }
-        }},
-        {business_schedule, #domain_BusinessScheduleRef{id = ?INTEGER}} =>
-        {business_schedule, #domain_BusinessScheduleObject{
-            ref = #domain_BusinessScheduleRef{id = ?INTEGER},
-            data = #domain_BusinessSchedule{
-                name = ?STRING,
-                description = ?STRING,
-                schedule = #'Schedule'{
-                    year = {every, #'ScheduleEvery'{}},
-                    month = {every, #'ScheduleEvery'{}},
-                    day_of_month = {every, #'ScheduleEvery'{}},
-                    day_of_week = {every, #'ScheduleEvery'{}},
-                    hour = {every, #'ScheduleEvery'{}},
-                    minute = {every, #'ScheduleEvery'{}},
-                    second = {every, #'ScheduleEvery'{}}
-                },
-                delay = #'TimeSpan'{},
-                policy = #domain_PayoutCompilationPolicy{
-                    assets_freeze_for = #'TimeSpan'{}
+            {category, #domain_CategoryObject{
+                ref = #domain_CategoryRef{id = ?INTEGER},
+                data = #domain_Category{
+                    name = ?STRING,
+                    description = ?STRING
                 }
-            }
-        }},
+            }},
+        {business_schedule, #domain_BusinessScheduleRef{id = ?INTEGER}} =>
+            {business_schedule, #domain_BusinessScheduleObject{
+                ref = #domain_BusinessScheduleRef{id = ?INTEGER},
+                data = #domain_BusinessSchedule{
+                    name = ?STRING,
+                    description = ?STRING,
+                    schedule = #'Schedule'{
+                        year = {every, #'ScheduleEvery'{}},
+                        month = {every, #'ScheduleEvery'{}},
+                        day_of_month = {every, #'ScheduleEvery'{}},
+                        day_of_week = {every, #'ScheduleEvery'{}},
+                        hour = {every, #'ScheduleEvery'{}},
+                        minute = {every, #'ScheduleEvery'{}},
+                        second = {every, #'ScheduleEvery'{}}
+                    },
+                    delay = #'TimeSpan'{},
+                    policy = #domain_PayoutCompilationPolicy{
+                        assets_freeze_for = #'TimeSpan'{}
+                    }
+                }
+            }},
         {payment_institution, #domain_PaymentInstitutionRef{id = ?INTEGER}} =>
-        {payment_institution, #domain_PaymentInstitutionObject{
-            ref = #domain_PaymentInstitutionRef{id = ?INTEGER},
-            data = #domain_PaymentInstitution{
-                name = ?STRING,
-                description = ?STRING,
-                system_account_set = {value, #domain_SystemAccountSetRef{id = ?INTEGER}},
-                default_contract_template = {value, #domain_ContractTemplateRef{id = ?INTEGER}},
-                providers = {value, []},
-                inspector = {value, #domain_InspectorRef{id = ?INTEGER}},
-                realm = test,
-                residences = [rus]
-            }
-        }}
+            {payment_institution, #domain_PaymentInstitutionObject{
+                ref = #domain_PaymentInstitutionRef{id = ?INTEGER},
+                data = #domain_PaymentInstitution{
+                    name = ?STRING,
+                    description = ?STRING,
+                    system_account_set = {value, #domain_SystemAccountSetRef{id = ?INTEGER}},
+                    default_contract_template = {value, #domain_ContractTemplateRef{id = ?INTEGER}},
+                    providers = {value, []},
+                    inspector = {value, #domain_InspectorRef{id = ?INTEGER}},
+                    realm = test,
+                    residences = [rus]
+                }
+            }}
     }
 }).
 
 -define(INVOICE_EVENT(ID), #payproc_Event{
     id = ID,
     created_at = ?TIMESTAMP,
-    payload =  {invoice_changes,
-        [
+    payload =
+        {invoice_changes, [
             {invoice_created, #payproc_InvoiceCreated{invoice = ?INVOICE}},
             {invoice_status_changed, #payproc_InvoiceStatusChanged{status = ?INVOICE_STATUS(unpaid)}},
             {invoice_status_changed, #payproc_InvoiceStatusChanged{status = ?INVOICE_STATUS(paid)}},
             {invoice_status_changed, #payproc_InvoiceStatusChanged{status = ?INVOICE_STATUS(cancelled)}},
             {invoice_status_changed, #payproc_InvoiceStatusChanged{status = ?INVOICE_STATUS(fulfilled)}}
-        ]
-    },
-    source =  {invoice_id, ?STRING}
+        ]},
+    source = {invoice_id, ?STRING}
 }).
 
 -define(INVOICE_EVENT_PRIVATE(ID), #payproc_Event{
     id = ID,
     created_at = ?TIMESTAMP,
-    payload =  {invoice_changes,
-        [
+    payload =
+        {invoice_changes, [
             {invoice_payment_change, #payproc_InvoicePaymentChange{
                 id = <<"1">>,
-                payload = {invoice_payment_session_change, #payproc_InvoicePaymentSessionChange{
-                    target = {processed, #domain_InvoicePaymentProcessed{}},
-                    payload = {session_started, #payproc_SessionStarted{}}}
-                }}
-            }
-        ]
-    },
-    source =  {invoice_id, ?STRING}
+                payload =
+                    {invoice_payment_session_change, #payproc_InvoicePaymentSessionChange{
+                        target = {processed, #domain_InvoicePaymentProcessed{}},
+                        payload = {session_started, #payproc_SessionStarted{}}
+                    }}
+            }}
+        ]},
+    source = {invoice_id, ?STRING}
 }).
 
 -define(TERM_SET, #domain_TermSet{
     payouts = ?PAYOUTS_SERVICE_TERMS,
     payments = ?PAYMENTS_SERVICE_TERMS
- }).
+}).
 
 -define(PAYOUTS_SERVICE_TERMS, #domain_PayoutsServiceTerms{}).
 
 -define(PAYMENTS_SERVICE_TERMS, #domain_PaymentsServiceTerms{
-    payment_methods = {value,
-        ordsets:from_list([
-            #domain_PaymentMethodRef{
-                id = {bank_card_deprecated, mastercard}
-            },
-            #domain_PaymentMethodRef{
-                id = {bank_card_deprecated, visa}
-            },
-            #domain_PaymentMethodRef{
-                id = {tokenized_bank_card_deprecated, #domain_TokenizedBankCard{
-                    payment_system = mastercard,
-                    token_provider = applepay
-                }}
-            },
-            #domain_PaymentMethodRef{
-                id = {tokenized_bank_card_deprecated, #domain_TokenizedBankCard{
-                    payment_system = visa,
-                    token_provider = applepay
-                }}
-            },
-            #domain_PaymentMethodRef{
-                id = {bank_card, #domain_BankCardPaymentMethod{
-                    payment_system = mastercard,
-                    token_provider = applepay,
-                    tokenization_method = dpan
-                }}
-            },
-            #domain_PaymentMethodRef{
-                id = {bank_card, #domain_BankCardPaymentMethod{
-                    payment_system = visa,
-                    token_provider = applepay,
-                    tokenization_method = dpan
-                }}
-            },
-            #domain_PaymentMethodRef{
-                id = {bank_card, #domain_BankCardPaymentMethod{
-                    payment_system = mastercard
-                }}
-            },
-            #domain_PaymentMethodRef{
-                id = {bank_card, #domain_BankCardPaymentMethod{
-                    payment_system = visa
-                }}
-            }
-        ])
-    }
+    payment_methods =
+        {value,
+            ordsets:from_list([
+                #domain_PaymentMethodRef{
+                    id = {bank_card_deprecated, mastercard}
+                },
+                #domain_PaymentMethodRef{
+                    id = {bank_card_deprecated, visa}
+                },
+                #domain_PaymentMethodRef{
+                    id =
+                        {tokenized_bank_card_deprecated, #domain_TokenizedBankCard{
+                            payment_system = mastercard,
+                            token_provider = applepay
+                        }}
+                },
+                #domain_PaymentMethodRef{
+                    id =
+                        {tokenized_bank_card_deprecated, #domain_TokenizedBankCard{
+                            payment_system = visa,
+                            token_provider = applepay
+                        }}
+                },
+                #domain_PaymentMethodRef{
+                    id =
+                        {bank_card, #domain_BankCardPaymentMethod{
+                            payment_system = mastercard,
+                            token_provider = applepay,
+                            tokenization_method = dpan
+                        }}
+                },
+                #domain_PaymentMethodRef{
+                    id =
+                        {bank_card, #domain_BankCardPaymentMethod{
+                            payment_system = visa,
+                            token_provider = applepay,
+                            tokenization_method = dpan
+                        }}
+                },
+                #domain_PaymentMethodRef{
+                    id =
+                        {bank_card, #domain_BankCardPaymentMethod{
+                            payment_system = mastercard
+                        }}
+                },
+                #domain_PaymentMethodRef{
+                    id =
+                        {bank_card, #domain_BankCardPaymentMethod{
+                            payment_system = visa
+                        }}
+                }
+            ])}
 }).
 
 -define(CUSTOMER, #payproc_Customer{
@@ -811,23 +854,26 @@
     status = {succeeded, #payproc_CustomerBindingSucceeded{}}
 }).
 
-
 -define(TEST_PAYMENT_TOKEN, ?TEST_PAYMENT_TOKEN(visa)).
 
--define(TEST_PAYMENT_TOKEN(PaymentSystem), capi_utils:map_to_base64url(#{
-    <<"type"          >> => <<"bank_card">>,
-    <<"token"         >> => ?STRING,
-    <<"payment_system">> => atom_to_binary(PaymentSystem, utf8),
-    <<"bin"           >> => <<"411111">>,
-    <<"masked_pan"    >> => <<"1111">>
-})).
+-define(TEST_PAYMENT_TOKEN(PaymentSystem),
+    capi_utils:map_to_base64url(#{
+        <<"type">> => <<"bank_card">>,
+        <<"token">> => ?STRING,
+        <<"payment_system">> => atom_to_binary(PaymentSystem, utf8),
+        <<"bin">> => <<"411111">>,
+        <<"masked_pan">> => <<"1111">>
+    })
+).
 
--define(TEST_PAYMENT_SESSION, capi_utils:map_to_base64url(#{
-    <<"paymentSession">> => ?STRING,
-    <<"clientInfo"    >> => #{
-        <<"fingerprint">> => <<"test fingerprint">>,
-        <<"ip"         >> => <<"::ffff:127.0.0.1">>
-    }
-})).
+-define(TEST_PAYMENT_SESSION,
+    capi_utils:map_to_base64url(#{
+        <<"paymentSession">> => ?STRING,
+        <<"clientInfo">> => #{
+            <<"fingerprint">> => <<"test fingerprint">>,
+            <<"ip">> => <<"::ffff:127.0.0.1">>
+        }
+    })
+).
 
 -endif.

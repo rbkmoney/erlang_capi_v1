@@ -23,51 +23,46 @@
 
 -define(DEFAULT_INVOICE_META, #{}).
 -define(DEFAULT_INVOICE_TPL_META, #{}).
--define(DEFAULT_URL_LIFETIME, 60). % seconds
+% seconds
+-define(DEFAULT_URL_LIFETIME, 60).
 
--define(payment_institution_ref(PaymentInstitutionID),
-    #domain_PaymentInstitutionRef{id = PaymentInstitutionID}).
+-define(payment_institution_ref(PaymentInstitutionID), #domain_PaymentInstitutionRef{id = PaymentInstitutionID}).
 
 -define(CAPI_NS, <<"com.rbkmoney.capi">>).
 
 -spec authorize_api_key(swag_server:operation_id(), swag_server:api_key(), handler_opts()) ->
     Result :: false | {true, capi_auth:context()}.
-
 authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
     _ = capi_utils:logtag_process(operation_id, OperationID),
     capi_auth:authorize_api_key(OperationID, ApiKey).
 
--spec map_error(atom(), swag_server_validation:error()) ->
-    swag_server:error_reason().
-
+-spec map_error(atom(), swag_server_validation:error()) -> swag_server:error_reason().
 map_error(validation_error, Error) ->
     Type = genlib:to_binary(maps:get(type, Error)),
     Name = genlib:to_binary(maps:get(param_name, Error)),
-    Message = case maps:get(description, Error, undefined) of
-        undefined ->
-            <<"Request parameter: ", Name/binary, ", error type: ", Type/binary>>;
-        Description ->
-            DescriptionBin = genlib:to_binary(Description),
-            <<"Request parameter: ", Name/binary,
-            ", error type: ", Type/binary,
-            ", description: ", DescriptionBin/binary>>
-    end,
+    Message =
+        case maps:get(description, Error, undefined) of
+            undefined ->
+                <<"Request parameter: ", Name/binary, ", error type: ", Type/binary>>;
+            Description ->
+                DescriptionBin = genlib:to_binary(Description),
+                <<"Request parameter: ", Name/binary, ", error type: ", Type/binary, ", description: ",
+                    DescriptionBin/binary>>
+        end,
     jsx:encode(#{
         <<"code">> => <<"invalidRequest">>,
         <<"message">> => Message
     }).
 
 -type request_data() :: #{atom() | binary() => term()}.
--type handler_opts()        :: swag_server:handler_opts(_).
+-type handler_opts() :: swag_server:handler_opts(_).
 
 -spec handle_request(
     OperationID :: swag_server:operation_id(),
     Req :: request_data(),
     Context :: swag_server:request_context(),
     handler_opts()
-) ->
-    {ok | error, swag_server:response()}.
-
+) -> {ok | error, swag_server:response()}.
 handle_request(OperationID, Req, Context, _HandlerOpts) ->
     _ = logger:info("Processing request ~p", [OperationID]),
     try
@@ -89,14 +84,10 @@ handle_request(OperationID, Req, Context, _HandlerOpts) ->
     Req :: request_data(),
     Context :: swag_server:request_context(),
     ReqCtx :: woody_context:ctx()
-) ->
-    {Code :: non_neg_integer(), Headers :: #{}, Response :: #{}}.
-
+) -> {Code :: non_neg_integer(), Headers :: #{}, Response :: #{}}.
 process_request('CreateInvoice' = OperationID, Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
-    try
-        create_invoice(PartyID, maps:get('InvoiceParams', Req), Context, ReqCtx, OperationID)
-    of
+    try create_invoice(PartyID, maps:get('InvoiceParams', Req), Context, ReqCtx, OperationID) of
         {ok, #'payproc_Invoice'{invoice = Invoice}} ->
             {ok, {201, #{}, make_invoice_and_token(Invoice, PartyID, Context)}};
         {exception, Exception} ->
@@ -118,17 +109,17 @@ process_request('CreateInvoice' = OperationID, Req, Context, ReqCtx) ->
         invalid_invoice_cost ->
             {ok, {400, #{}, logic_error(invalidInvoiceCost, <<"Invalid invoice amount">>)}}
     end;
-
 process_request('CreatePayment' = OperationID, Req, Context, ReqCtx) ->
     InvoiceID = maps:get('invoiceID', Req),
     PaymentParams = maps:get('PaymentParams', Req),
     PartyID = get_party_id(Context),
-    Result = try
-        create_payment(PartyID, InvoiceID, PaymentParams, Context, ReqCtx, OperationID)
-    catch
-        throw:Error when Error =:= invalid_token orelse Error =:= invalid_payment_session ->
-            {error, Error}
-    end,
+    Result =
+        try
+            create_payment(PartyID, InvoiceID, PaymentParams, Context, ReqCtx, OperationID)
+        catch
+            throw:Error when Error =:= invalid_token orelse Error =:= invalid_payment_session ->
+                {error, Error}
+        end,
 
     case Result of
         {ok, Payment} ->
@@ -151,17 +142,20 @@ process_request('CreatePayment' = OperationID, Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end;
         {error, invalid_token} ->
-            {ok, {400, #{}, logic_error(
-                invalidPaymentToolToken,
-                <<"Specified payment tool token is invalid">>
-            )}};
+            {ok,
+                {400, #{},
+                    logic_error(
+                        invalidPaymentToolToken,
+                        <<"Specified payment tool token is invalid">>
+                    )}};
         {error, invalid_payment_session} ->
-            {ok, {400, #{}, logic_error(
-                invalidPaymentSession,
-                <<"Specified payment session is invalid">>
-            )}}
+            {ok,
+                {400, #{},
+                    logic_error(
+                        invalidPaymentSession,
+                        <<"Specified payment session is invalid">>
+                    )}}
     end;
-
 process_request('CreateInvoiceAccessToken', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     InvoiceID = maps:get(invoiceID, Req),
@@ -179,7 +173,6 @@ process_request('CreateInvoiceAccessToken', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('GetInvoiceByID', Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
     UserInfo = get_user_info(Context),
@@ -196,7 +189,6 @@ process_request('GetInvoiceByID', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('FulfillInvoice', Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
 
@@ -228,7 +220,6 @@ process_request('FulfillInvoice', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('RescindInvoice', Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
 
@@ -261,7 +252,6 @@ process_request('RescindInvoice', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('GetInvoiceEvents', Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
     UserInfo = get_user_info(Context),
@@ -277,7 +267,7 @@ process_request('GetInvoiceEvents', Req, Context, ReqCtx) ->
         user_info => UserInfo,
         req_ctx => ReqCtx
     },
-    Result  = collect_events(
+    Result = collect_events(
         maps:get(limit, Req),
         genlib_map:get(eventID, Req),
         GetterFun,
@@ -292,14 +282,13 @@ process_request('GetInvoiceEvents', Req, Context, ReqCtx) ->
                 #payproc_InvalidUser{} ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{},  general_error(<<"Invoice not found">>)}};
+                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
                 #payproc_EventNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Event not found">>)}};
                 #'InvalidRequest'{errors = Errors} ->
                     {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}}
             end
     end;
-
 process_request('GetInvoicePaymentMethods', Req, Context, ReqCtx) ->
     Result = construct_payment_methods(
         invoicing,
@@ -321,7 +310,6 @@ process_request('GetInvoicePaymentMethods', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('GetPayments', Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
     UserInfo = get_user_info(Context),
@@ -338,7 +326,6 @@ process_request('GetPayments', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('GetPaymentByID', Req, Context, ReqCtx) ->
     PaymentID = maps:get(paymentID, Req),
     InvoiceID = maps:get(invoiceID, Req),
@@ -358,7 +345,6 @@ process_request('GetPaymentByID', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('CancelPayment', Req, Context, ReqCtx) ->
     PaymentID = maps:get(paymentID, Req),
     InvoiceID = maps:get(invoiceID, Req),
@@ -395,7 +381,6 @@ process_request('CancelPayment', Req, Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
             end
     end;
-
 process_request('CapturePayment', Req, Context, ReqCtx) ->
     PaymentID = maps:get(paymentID, Req),
     InvoiceID = maps:get(invoiceID, Req),
@@ -435,12 +420,11 @@ process_request('CapturePayment', Req, Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
             end
     end;
-
 process_request('SearchInvoices', Req, Context, ReqCtx) ->
     Query = #{
         <<"merchant_id">> => get_party_id(Context),
         <<"shop_id">> => genlib_map:get('shopID', Req),
-        <<"invoice_id">> =>  genlib_map:get('invoiceID', Req),
+        <<"invoice_id">> => genlib_map:get('invoiceID', Req),
         <<"from_time">> => get_time('fromTime', Req),
         <<"to_time">> => get_time('toTime', Req),
         <<"invoice_status">> => genlib_map:get('invoiceStatus', Req),
@@ -456,44 +440,42 @@ process_request('SearchInvoices', Req, Context, ReqCtx) ->
         <<"payment_pan_mask">> => genlib_map:get('cardNumberMask', Req),
         <<"payment_amount">> => genlib_map:get('paymentAmount', Req),
         <<"invoice_amount">> => genlib_map:get('invoiceAmount', Req),
-        <<"payment_token_provider"   >> => genlib_map:get('bankCardTokenProvider', Req),
-        <<"payment_system"           >> => genlib_map:get('bankCardPaymentSystem', Req),
-        <<"payment_bin"              >> => genlib_map:get('bin', Req)
+        <<"payment_token_provider">> => genlib_map:get('bankCardTokenProvider', Req),
+        <<"payment_system">> => genlib_map:get('bankCardPaymentSystem', Req),
+        <<"payment_bin">> => genlib_map:get('bin', Req)
     },
     Opts = #{
         thrift_fun => 'GetInvoices',
         decode_fun => fun decode_stat_invoice/1
     },
     process_search_request(invoices, Query, Req, ReqCtx, Opts);
-
 process_request('SearchPayments', Req, Context, ReqCtx) ->
     Query = #{
-        <<"merchant_id">>   => get_party_id(Context),
-        <<"shop_id">>       => genlib_map:get('shopID', Req),
-        <<"invoice_id">>    => genlib_map:get('invoiceID', Req),
-        <<"from_time">>     => get_time('fromTime', Req),
-        <<"to_time">>       => get_time('toTime', Req),
-        <<"payment_status">>            => genlib_map:get('paymentStatus', Req),
-        <<"payment_flow">>              => genlib_map:get('paymentFlow', Req),
+        <<"merchant_id">> => get_party_id(Context),
+        <<"shop_id">> => genlib_map:get('shopID', Req),
+        <<"invoice_id">> => genlib_map:get('invoiceID', Req),
+        <<"from_time">> => get_time('fromTime', Req),
+        <<"to_time">> => get_time('toTime', Req),
+        <<"payment_status">> => genlib_map:get('paymentStatus', Req),
+        <<"payment_flow">> => genlib_map:get('paymentFlow', Req),
         <<"payment_method">> => encode_payment_method(genlib_map:get('paymentMethod', Req)),
         <<"payment_terminal_provider">> => genlib_map:get('paymentTerminalProvider', Req),
-        <<"payment_customer_id">>       => genlib_map:get('customerID', Req),
-        <<"payment_id">>                => genlib_map:get('paymentID', Req),
-        <<"payment_email">>             => genlib_map:get('payerEmail', Req),
-        <<"payment_ip">>                => genlib_map:get('payerIP', Req),
-        <<"payment_fingerprint">>       => genlib_map:get('payerFingerprint', Req),
-        <<"payment_pan_mask">>          => genlib_map:get('cardNumberMask', Req),
-        <<"payment_amount">>            => genlib_map:get('paymentAmount', Req),
-        <<"payment_token_provider">>    => genlib_map:get('bankCardTokenProvider', Req),
-        <<"payment_system">>            => genlib_map:get('bankCardPaymentSystem', Req),
-        <<"payment_bin">>               => genlib_map:get('bin', Req)
+        <<"payment_customer_id">> => genlib_map:get('customerID', Req),
+        <<"payment_id">> => genlib_map:get('paymentID', Req),
+        <<"payment_email">> => genlib_map:get('payerEmail', Req),
+        <<"payment_ip">> => genlib_map:get('payerIP', Req),
+        <<"payment_fingerprint">> => genlib_map:get('payerFingerprint', Req),
+        <<"payment_pan_mask">> => genlib_map:get('cardNumberMask', Req),
+        <<"payment_amount">> => genlib_map:get('paymentAmount', Req),
+        <<"payment_token_provider">> => genlib_map:get('bankCardTokenProvider', Req),
+        <<"payment_system">> => genlib_map:get('bankCardPaymentSystem', Req),
+        <<"payment_bin">> => genlib_map:get('bin', Req)
     },
     Opts = #{
         thrift_fun => 'GetPayments',
         decode_fun => fun decode_stat_payment/1
     },
     process_search_request(payments, Query, Req, ReqCtx, Opts);
-
 process_request('SearchPayouts', Req, Context, ReqCtx) ->
     Query = #{
         <<"merchant_id">> => get_party_id(Context),
@@ -509,24 +491,18 @@ process_request('SearchPayouts', Req, Context, ReqCtx) ->
         decode_fun => fun decode_stat_payout/1
     },
     process_search_request(payouts, Query, Req, ReqCtx, Opts);
-
 process_request('GetPaymentConversionStats', Req, Context, ReqCtx) ->
     process_merchant_stat(payments_conversion_stat, Req, Context, ReqCtx);
-
 process_request('GetPaymentRevenueStats', Req, Context, ReqCtx) ->
     process_merchant_stat(payments_turnover, Req, Context, ReqCtx);
-
 process_request('GetPaymentGeoStats', Req, Context, ReqCtx) ->
     process_merchant_stat(payments_geo_stat, Req, Context, ReqCtx);
-
 process_request('GetPaymentRateStats', Req, Context, ReqCtx) ->
     process_merchant_stat(customers_rate_stat, Req, Context, ReqCtx);
-
 process_request('GetPaymentMethodStats', Req, Context, ReqCtx) ->
-    bankCard =  maps:get(paymentMethod, Req),
+    bankCard = maps:get(paymentMethod, Req),
     StatType = payments_pmt_cards_stat,
     process_merchant_stat(StatType, Req, Context, ReqCtx);
-
 process_request('GetLocationsNames', Req, _Context, ReqCtx) ->
     Language = maps:get('language', Req),
     GeoIDs = ordsets:from_list(maps:get('geoIDs', Req)),
@@ -549,7 +525,6 @@ process_request('GetLocationsNames', Req, _Context, ReqCtx) ->
         {exception, #'InvalidRequest'{errors = Errors}} ->
             {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}}
     end;
-
 process_request('CreateRefund' = OperationID, Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
@@ -600,10 +575,9 @@ process_request('CreateRefund' = OperationID, Req, Context, ReqCtx) ->
                 #payproc_InvalidContractStatus{} ->
                     {ok, {400, #{}, logic_error(invalidContractStatus, <<"Invalid contract status">>)}};
                 #payproc_InsufficientAccountBalance{} ->
-                    {ok, {400, #{}, logic_error(
-                        insufficentAccountBalance,
-                        <<"Operation can not be conducted because of insufficient funds on the merchant account">>
-                    )}};
+                    Message =
+                        <<"Operation can not be conducted because of insufficient funds on the merchant account">>,
+                    {ok, {400, #{}, logic_error(insufficentAccountBalance, Message)}};
                 #payproc_InvoicePaymentAmountExceeded{} ->
                     {ok, {400, #{}, logic_error(invoicePaymentAmountExceeded, <<"Payment amount exceeded">>)}};
                 #payproc_InconsistentRefundCurrency{} ->
@@ -612,7 +586,6 @@ process_request('CreateRefund' = OperationID, Req, Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}}
             end
     end;
-
 process_request('GetRefunds', Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
@@ -632,7 +605,6 @@ process_request('GetRefunds', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('GetRefundByID', Req, Context, ReqCtx) ->
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
@@ -660,7 +632,6 @@ process_request('GetRefundByID', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
             end
     end;
-
 process_request('CreateInvoiceTemplate', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     UserInfo = get_user_info(Context),
@@ -669,7 +640,7 @@ process_request('CreateInvoiceTemplate', Req, Context, ReqCtx) ->
         prepare_party(
             Context,
             ReqCtx,
-            fun () ->
+            fun() ->
                 service_call(
                     invoice_templating,
                     'Create',
@@ -696,14 +667,13 @@ process_request('CreateInvoiceTemplate', Req, Context, ReqCtx) ->
         throw:zero_invoice_lifetime ->
             {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}}
     end;
-
 process_request('GetInvoiceTemplateByID', Req, Context, ReqCtx) ->
     InvoiceTplID = maps:get('invoiceTemplateID', Req),
     UserInfo = get_user_info(Context),
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID)
         end
     ),
@@ -711,13 +681,10 @@ process_request('GetInvoiceTemplateByID', Req, Context, ReqCtx) ->
         {ok, InvoiceTpl} ->
             {ok, {200, #{}, decode_invoice_tpl(InvoiceTpl)}};
         {exception, E} when
-            E == #payproc_InvalidUser{};
-            E == #payproc_InvoiceTemplateNotFound{};
-            E == #payproc_InvoiceTemplateRemoved{}
+            E == #payproc_InvalidUser{}; E == #payproc_InvoiceTemplateNotFound{}; E == #payproc_InvoiceTemplateRemoved{}
         ->
             {ok, {404, #{}, general_error(<<"Invoice template not found">>)}}
     end;
-
 process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
     InvoiceTplID = maps:get('invoiceTemplateID', Req),
     UserInfo = get_user_info(Context),
@@ -731,7 +698,7 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
         prepare_party(
             Context,
             ReqCtx,
-            fun () ->
+            fun() ->
                 service_call(
                     invoice_templating,
                     'Update',
@@ -768,14 +735,13 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
         throw:zero_invoice_lifetime ->
             {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}}
     end;
-
 process_request('DeleteInvoiceTemplate', Req, Context, ReqCtx) ->
     InvoiceTplID = maps:get('invoiceTemplateID', Req),
     UserInfo = get_user_info(Context),
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 invoice_templating,
                 'Delete',
@@ -801,14 +767,11 @@ process_request('DeleteInvoiceTemplate', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}}
             end
     end;
-
 process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx) ->
     InvoiceTplID = maps:get('invoiceTemplateID', Req),
     InvoiceParams = maps:get('InvoiceParamsWithTemplate', Req),
     PartyID = get_party_id(Context),
-    try
-        create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, Context, ReqCtx, OperationID)
-    of
+    try create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, Context, ReqCtx, OperationID) of
         {ok, #'payproc_Invoice'{invoice = Invoice}} ->
             {ok, {201, #{}, make_invoice_and_token(Invoice, PartyID, Context)}};
         {exception, Exception} ->
@@ -834,7 +797,6 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
         throw:{bad_invoice_params, amount_no_currency} ->
             {ok, {400, #{}, logic_error(invalidRequest, <<"Currency is required for the amount">>)}}
     end;
-
 process_request('GetInvoicePaymentMethodsByTemplateID', Req, Context, ReqCtx) ->
     Timestamp = genlib_rfc3339:format_relaxed(erlang:system_time(millisecond), millisecond),
     Result = construct_payment_methods(
@@ -851,13 +813,10 @@ process_request('GetInvoicePaymentMethodsByTemplateID', Req, Context, ReqCtx) ->
         {ok, PaymentMethods} when is_list(PaymentMethods) ->
             {ok, {200, #{}, PaymentMethods}};
         {exception, E} when
-            E == #payproc_InvalidUser{};
-            E == #payproc_InvoiceTemplateNotFound{};
-            E == #payproc_InvoiceTemplateRemoved{}
+            E == #payproc_InvalidUser{}; E == #payproc_InvoiceTemplateNotFound{}; E == #payproc_InvoiceTemplateRemoved{}
         ->
             {ok, {404, #{}, general_error(<<"Invoice template not found">>)}}
     end;
-
 process_request('ActivateShop', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -866,7 +825,7 @@ process_request('ActivateShop', Req, Context, ReqCtx) ->
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'ActivateShop',
@@ -889,7 +848,6 @@ process_request('ActivateShop', Req, Context, ReqCtx) ->
                     {ok, {204, #{}, undefined}}
             end
     end;
-
 process_request('SuspendShop', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -898,7 +856,7 @@ process_request('SuspendShop', Req, Context, ReqCtx) ->
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'SuspendShop',
@@ -921,14 +879,12 @@ process_request('SuspendShop', Req, Context, ReqCtx) ->
                     {ok, {204, #{}, undefined}}
             end
     end;
-
 process_request('GetShops', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     {ok, #domain_Party{shops = Shops}} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
     Resp = decode_shops_map(Shops),
     {ok, {200, #{}, Resp}};
-
 process_request('GetShopByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -936,7 +892,7 @@ process_request('GetShopByID', Req, Context, ReqCtx) ->
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'GetShop',
@@ -953,7 +909,6 @@ process_request('GetShopByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ShopNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Shop not found">>)}}
     end;
-
 process_request('GetReports', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     ReportRequest = #reports_ReportRequest{
@@ -980,7 +935,6 @@ process_request('GetReports', Req, Context, ReqCtx) ->
                     {ok, {400, #{}, limit_exceeded_error(Limit)}}
             end
     end;
-
 process_request('DownloadFile', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     ShopID = maps:get(shopID, Req),
@@ -1000,13 +954,11 @@ process_request('DownloadFile', Req, Context, ReqCtx) ->
         {exception, #reports_ReportNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Report not found">>)}}
     end;
-
 process_request('GetContracts', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
     {ok, {200, #{}, decode_contracts_map(Party#domain_Party.contracts, Party#domain_Party.contractors)}};
-
 process_request('GetContractByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1019,7 +971,6 @@ process_request('GetContractByID', Req, Context, ReqCtx) ->
         Contract ->
             {ok, {200, #{}, decode_contract(Contract, Party#domain_Party.contractors)}}
     end;
-
 process_request('GetPayoutTools', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1033,7 +984,6 @@ process_request('GetPayoutTools', Req, Context, ReqCtx) ->
         {exception, #payproc_ContractNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}}
     end;
-
 process_request('GetPayoutToolByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1052,7 +1002,6 @@ process_request('GetPayoutToolByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ContractNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}}
     end;
-
 process_request('GetContractAdjustments', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1066,7 +1015,6 @@ process_request('GetContractAdjustments', Req, Context, ReqCtx) ->
         {exception, #payproc_ContractNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}}
     end;
-
 process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1085,21 +1033,19 @@ process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ContractNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}}
     end;
-
 process_request('GetMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
     Resp = decode_party(Party),
     {ok, {200, #{}, Resp}};
-
 process_request('SuspendMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'Suspend',
@@ -1117,14 +1063,13 @@ process_request('SuspendMyParty', _Req, Context, ReqCtx) ->
                     {ok, {204, #{}, undefined}}
             end
     end;
-
 process_request('ActivateMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'Activate',
@@ -1139,14 +1084,12 @@ process_request('ActivateMyParty', _Req, Context, ReqCtx) ->
         {exception, #payproc_InvalidPartyStatus{status = {suspension, {active, _}}}} ->
             {ok, {204, #{}, undefined}}
     end;
-
 process_request('GetCategories', _Req, Context, ReqCtx) ->
     _ = get_user_info(Context),
     _ = get_party_id(Context),
     {ok, Categories} = capi_domain:get_categories(ReqCtx),
     Resp = [decode_category(C) || C <- Categories],
     {ok, {200, #{}, Resp}};
-
 process_request('GetCategoryByRef', Req, Context0, ReqCtx) ->
     _ = get_user_info(Context0),
     _ = get_party_id(Context0),
@@ -1158,7 +1101,6 @@ process_request('GetCategoryByRef', Req, Context0, ReqCtx) ->
         {error, not_found} ->
             {404, #{}, general_error(<<"Category not found">>)}
     end;
-
 process_request('GetScheduleByRef', Req, Context, ReqCtx) ->
     _ = get_user_info(Context),
     _ = get_party_id(Context),
@@ -1169,7 +1111,6 @@ process_request('GetScheduleByRef', Req, Context, ReqCtx) ->
         {error, not_found} ->
             {404, #{}, general_error(<<"Schedule not found">>)}
     end;
-
 process_request('GetPaymentInstitutions', Req, _Context, ReqCtx) ->
     try
         Residence = encode_residence(genlib_map:get(residence, Req)),
@@ -1192,7 +1133,6 @@ process_request('GetPaymentInstitutions', Req, _Context, ReqCtx) ->
         throw:{encode_residence, invalid_residence} ->
             {ok, {400, #{}, logic_error(invalidRequest, <<"Invalid residence">>)}}
     end;
-
 process_request('GetPaymentInstitutionByRef', Req, _Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
     case capi_domain:get({payment_institution, ?payment_institution_ref(PaymentInstitutionID)}, ReqCtx) of
@@ -1202,7 +1142,6 @@ process_request('GetPaymentInstitutionByRef', Req, _Context, ReqCtx) ->
         {error, not_found} ->
             {404, #{}, general_error(<<"Payment institution not found">>)}
     end;
-
 process_request('GetPaymentInstitutionPaymentTerms', Req, Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
     VS = #payproc_Varset{},
@@ -1213,14 +1152,15 @@ process_request('GetPaymentInstitutionPaymentTerms', Req, Context, ReqCtx) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             {404, #{}, general_error(<<"Payment institution not found">>)}
     end;
-
 process_request('GetPaymentInstitutionPayoutMethods', Req, Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
     VS = prepare_varset(Req),
     case compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) of
-        {ok, #domain_TermSet{payouts = #domain_PayoutsServiceTerms{
-            payout_methods = PayoutMethods
-        }}} ->
+        {ok, #domain_TermSet{
+            payouts = #domain_PayoutsServiceTerms{
+                payout_methods = PayoutMethods
+            }
+        }} ->
             Resp = decode_payout_methods_selector(PayoutMethods),
             {ok, {200, #{}, Resp}};
         {ok, #domain_TermSet{payouts = undefined}} ->
@@ -1228,7 +1168,6 @@ process_request('GetPaymentInstitutionPayoutMethods', Req, Context, ReqCtx) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             {404, #{}, general_error(<<"Payment institution not found">>)}
     end;
-
 process_request('GetPaymentInstitutionPayoutSchedules', Req, Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
     VS = prepare_varset(Req),
@@ -1240,7 +1179,6 @@ process_request('GetPaymentInstitutionPayoutSchedules', Req, Context, ReqCtx) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             {404, #{}, general_error(<<"Payment institution not found">>)}
     end;
-
 process_request('GetAccountByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1248,7 +1186,7 @@ process_request('GetAccountByID', Req, Context, ReqCtx) ->
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'GetAccountState',
@@ -1264,7 +1202,6 @@ process_request('GetAccountByID', Req, Context, ReqCtx) ->
         {exception, #payproc_AccountNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Account not found">>)}}
     end;
-
 process_request('GetClaims', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1272,7 +1209,7 @@ process_request('GetClaims', Req, Context, ReqCtx) ->
     {ok, Claims} = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'GetClaims',
@@ -1283,7 +1220,6 @@ process_request('GetClaims', Req, Context, ReqCtx) ->
     ),
     Resp = decode_claims(filter_claims(ClaimStatus, Claims)),
     {ok, {200, #{}, Resp}};
-
 process_request('GetClaimByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1291,7 +1227,7 @@ process_request('GetClaimByID', Req, Context, ReqCtx) ->
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'GetClaim',
@@ -1312,7 +1248,6 @@ process_request('GetClaimByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ClaimNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Claim not found">>)}}
     end;
-
 process_request('CreateClaim', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -1321,7 +1256,7 @@ process_request('CreateClaim', Req, Context, ReqCtx) ->
         Result = prepare_party(
             Context,
             ReqCtx,
-            fun () ->
+            fun() ->
                 service_call(
                     party_management,
                     'CreateClaim',
@@ -1352,7 +1287,6 @@ process_request('CreateClaim', Req, Context, ReqCtx) ->
         throw:{encode_residence, invalid_residence} ->
             {ok, {400, #{}, logic_error(invalidRequest, <<"Invalid residence">>)}}
     end;
-
 % TODO disabled temporary, exception handling must be fixed befor enabling
 % process_request('UpdateClaimByID', Req, Context, ReqCtx) ->
 %     UserInfo = get_user_info(Context),
@@ -1384,7 +1318,7 @@ process_request('RevokeClaimByID', Req, Context, ReqCtx) ->
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'RevokeClaim',
@@ -1408,7 +1342,6 @@ process_request('RevokeClaimByID', Req, Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(invalidClaimRevision, <<"Invalid claim revision">>)}}
             end
     end;
-
 process_request('CreateWebhook', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     WebhookParams = encode_webhook_params(PartyID, maps:get('Webhook', Req)),
@@ -1420,12 +1353,10 @@ process_request('CreateWebhook', Req, Context, ReqCtx) ->
         {exception, #payproc_ShopNotFound{}} ->
             {ok, {400, #{}, logic_error(invalidShopID, <<"Shop not found">>)}}
     end;
-
 process_request('GetWebhooks', _Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     {ok, Webhooks} = service_call(webhook_manager, 'GetList', [PartyID], ReqCtx),
     {ok, {200, #{}, [decode_webhook(V) || V <- Webhooks]}};
-
 process_request('GetWebhookByID', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     case encode_webhook_id(maps:get(webhookID, Req)) of
@@ -1439,7 +1370,6 @@ process_request('GetWebhookByID', Req, Context, ReqCtx) ->
         error ->
             {ok, {404, #{}, general_error(<<"Webhook not found">>)}}
     end;
-
 process_request('DeleteWebhookByID', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     case encode_webhook_id(maps:get(webhookID, Req)) of
@@ -1453,21 +1383,20 @@ process_request('DeleteWebhookByID', Req, Context, ReqCtx) ->
         error ->
             {ok, {404, #{}, general_error(<<"Webhook not found">>)}}
     end;
-
 process_request('CreateCustomer', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     Params = encode_customer_params(PartyID, maps:get('Customer', Req)),
     Result = prepare_party(
-       Context,
-       ReqCtx,
-       fun () ->
-           service_call(
-               customer_management,
-               'Create',
-               [Params],
-               ReqCtx
-           )
-       end
+        Context,
+        ReqCtx,
+        fun() ->
+            service_call(
+                customer_management,
+                'Create',
+                [Params],
+                ReqCtx
+            )
+        end
     ),
     case Result of
         {ok, Customer} ->
@@ -1486,7 +1415,6 @@ process_request('CreateCustomer', Req, Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(operationNotPermitted, <<"Operation not permitted">>)}}
             end
     end;
-
 process_request('GetCustomerById', Req, _Context, ReqCtx) ->
     CustomerID = maps:get('customerID', Req),
     Result = get_customer_by_id(ReqCtx, CustomerID),
@@ -1501,7 +1429,6 @@ process_request('GetCustomerById', Req, _Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-
 process_request('DeleteCustomer', Req, _Context, ReqCtx) ->
     CustomerID = maps:get(customerID, Req),
     Result = service_call(
@@ -1525,7 +1452,6 @@ process_request('DeleteCustomer', Req, _Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
             end
     end;
-
 process_request('CreateCustomerAccessToken', Req, Context, ReqCtx) ->
     PartyID = get_party_id(Context),
     CustomerID = maps:get(customerID, Req),
@@ -1542,22 +1468,22 @@ process_request('CreateCustomerAccessToken', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-
 process_request('CreateBinding', Req, _Context, ReqCtx) ->
     CustomerID = maps:get(customerID, Req),
     BindingParams = maps:get('CustomerBindingParams', Req),
-    Result = try
-        Params =  encode_customer_binding_params(BindingParams),
-        service_call(
-            customer_management,
-            'StartBinding',
-            [CustomerID, Params],
-            ReqCtx
-        )
-    catch
-        throw:Error when Error =:= invalid_token orelse Error =:= invalid_payment_session ->
-            {error, Error}
-    end,
+    Result =
+        try
+            Params = encode_customer_binding_params(BindingParams),
+            service_call(
+                customer_management,
+                'StartBinding',
+                [CustomerID, Params],
+                ReqCtx
+            )
+        catch
+            throw:Error when Error =:= invalid_token orelse Error =:= invalid_payment_session ->
+                {error, Error}
+        end,
 
     case Result of
         {ok, CustomerBinding} ->
@@ -1580,17 +1506,20 @@ process_request('CreateBinding', Req, _Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(operationNotPermitted, <<"Operation not permitted">>)}}
             end;
         {error, invalid_token} ->
-            {ok, {400, #{}, logic_error(
-                invalidPaymentToolToken,
-                <<"Specified payment tool token is invalid">>
-            )}};
+            {ok,
+                {400, #{},
+                    logic_error(
+                        invalidPaymentToolToken,
+                        <<"Specified payment tool token is invalid">>
+                    )}};
         {error, invalid_payment_session} ->
-            {ok, {400, #{}, logic_error(
-                invalidPaymentSession,
-                <<"Specified payment session is invalid">>
-            )}}
+            {ok,
+                {400, #{},
+                    logic_error(
+                        invalidPaymentSession,
+                        <<"Specified payment session is invalid">>
+                    )}}
     end;
-
 process_request('GetBindings', Req, _Context, ReqCtx) ->
     CustomerID = maps:get(customerID, Req),
     Result = get_customer_by_id(ReqCtx, CustomerID),
@@ -1605,7 +1534,6 @@ process_request('GetBindings', Req, _Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-
 process_request('GetBinding', Req, _Context, ReqCtx) ->
     CustomerID = maps:get(customerID, Req),
     BindingID = maps:get(customerBindingID, Req),
@@ -1626,7 +1554,6 @@ process_request('GetBinding', Req, _Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-
 process_request('GetCustomerEvents', Req, _Context, ReqCtx) ->
     CustomerID = maps:get(customerID, Req),
     GetterFun = fun(Range) ->
@@ -1637,7 +1564,7 @@ process_request('GetCustomerEvents', Req, _Context, ReqCtx) ->
             ReqCtx
         )
     end,
-    Result  = collect_events(
+    Result = collect_events(
         maps:get(limit, Req),
         genlib_map:get(eventID, Req),
         GetterFun,
@@ -1669,9 +1596,10 @@ create_invoice(PartyID, InvoiceParams, Context, ReqCtx, BenderPrefix) ->
     prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(invoicing, 'Create', [UserInfo, Params], ReqCtx)
-        end).
+        end
+    ).
 
 create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, Context, ReqCtx, BenderPrefix) ->
     IdempotentKey = capi_bender:get_idempotent_key(BenderPrefix, PartyID, undefined),
@@ -1682,7 +1610,7 @@ create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, Context, ReqC
     prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(invoicing, 'CreateWithTemplate', [UserInfo, Params], ReqCtx)
         end
     ).
@@ -1729,7 +1657,7 @@ generate_report_presigned_url(FileID, ReqCtx) ->
             case Exception of
                 #'InvalidRequest'{errors = Errors} ->
                     {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
-                #reports_FileNotFound{}->
+                #reports_FileNotFound{} ->
                     {ok, {404, #{}, general_error(<<"File not found">>)}}
             end
     end.
@@ -1739,7 +1667,6 @@ validate_webhook_params(#webhooker_WebhookParams{event_filter = EventFilter}, Co
 
 validate_event_filter({invoice, #webhooker_InvoiceEventFilter{shop_id = ShopID}}, Context, ReqCtx) ->
     validate_event_filter_shop(ShopID, Context, ReqCtx);
-
 validate_event_filter({customer, #webhooker_CustomerEventFilter{shop_id = ShopID}}, Context, ReqCtx) ->
     validate_event_filter_shop(ShopID, Context, ReqCtx).
 
@@ -1749,7 +1676,7 @@ validate_event_filter_shop(ShopID, Context, ReqCtx) when ShopID /= undefined ->
     prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'GetShop',
@@ -1784,35 +1711,31 @@ decode_webhook_id(WebhookID) when is_integer(WebhookID) ->
 
 encode_webhook_params(PartyID, #{
     <<"scope">> := Scope,
-    <<"url">>   := URL
+    <<"url">> := URL
 }) ->
     #webhooker_WebhookParams{
-        party_id     = PartyID,
-        url          = URL,
+        party_id = PartyID,
+        url = URL,
         event_filter = encode_webhook_scope(Scope)
     }.
 
 encode_webhook_scope(#{
-    <<"topic">>      := <<"InvoicesTopic">>,
-    <<"shopID">>     := ShopID,
+    <<"topic">> := <<"InvoicesTopic">>,
+    <<"shopID">> := ShopID,
     <<"eventTypes">> := EventTypes
 }) ->
     {invoice, #webhooker_InvoiceEventFilter{
         shop_id = ShopID,
-        types   = ordsets:from_list([
-            encode_invoice_event_type(V) || V <- EventTypes
-        ])
+        types = ordsets:from_list([encode_invoice_event_type(V) || V <- EventTypes])
     }};
 encode_webhook_scope(#{
-    <<"topic">>      := <<"CustomersTopic">>,
-    <<"shopID">>     := ShopID,
+    <<"topic">> := <<"CustomersTopic">>,
+    <<"shopID">> := ShopID,
     <<"eventTypes">> := EventTypes
 }) ->
     {customer, #webhooker_CustomerEventFilter{
         shop_id = ShopID,
-        types   = ordsets:from_list([
-            encode_customer_event_type(V) || V <- EventTypes
-        ])
+        types = ordsets:from_list([encode_customer_event_type(V) || V <- EventTypes])
     }}.
 
 %%%
@@ -1822,7 +1745,7 @@ service_call(ServiceName, Function, Args, Context) ->
 
 create_context(#{'X-Request-ID' := RequestID}, AuthContext) ->
     RpcID = #{trace_id := TraceID} = woody_context:new_rpc_id(genlib:to_binary(RequestID)),
-    _ = logger:debug("Created TraceID:~p for RequestID:~p", [TraceID , RequestID]),
+    _ = logger:debug("Created TraceID:~p for RequestID:~p", [TraceID, RequestID]),
     WoodyContext = woody_context:new(RpcID),
     woody_user_identity:put(collect_user_identity(AuthContext), WoodyContext).
 
@@ -1870,13 +1793,13 @@ encode_invoice_params(ID, PartyID, InvoiceParams) ->
     Currency = genlib_map:get(<<"currency">>, InvoiceParams),
     Cart = genlib_map:get(<<"cart">>, InvoiceParams),
     #payproc_InvoiceParams{
-        id       = ID,
+        id = ID,
         party_id = PartyID,
-        details  = encode_invoice_details(InvoiceParams),
-        cost     = encode_invoice_cost(Amount, Currency, Cart),
-        due      = get_time(<<"dueDate">>, InvoiceParams),
-        context  = encode_invoice_context(InvoiceParams),
-        shop_id  = genlib_map:get(<<"shopID">>, InvoiceParams)
+        details = encode_invoice_details(InvoiceParams),
+        cost = encode_invoice_cost(Amount, Currency, Cart),
+        due = get_time(<<"dueDate">>, InvoiceParams),
+        context = encode_invoice_context(InvoiceParams),
+        shop_id = genlib_map:get(<<"shopID">>, InvoiceParams)
     }.
 
 encode_invoice_cost(Amount, Currency, Cart) when Amount =/= undefined, Cart =/= undefined ->
@@ -1906,10 +1829,10 @@ get_invoice_cart_amount(Cart) ->
 
 encode_invoice_params_with_tpl(InvoiceID, InvoiceTplID, InvoiceParams) ->
     #payproc_InvoiceWithTemplateParams{
-        id          = InvoiceID,
+        id = InvoiceID,
         template_id = InvoiceTplID,
-        cost        = encode_optional_invoice_cost(InvoiceParams),
-        context     = encode_optional_context(InvoiceParams)
+        cost = encode_optional_invoice_cost(InvoiceParams),
+        context = encode_optional_context(InvoiceParams)
     }.
 
 encode_invoice_details(Params) ->
@@ -1934,13 +1857,14 @@ encode_invoice_cart(undefined, _) ->
     undefined.
 
 encode_invoice_line(Line, Currency) ->
-    Metadata = case genlib_map:get(<<"taxMode">>, Line) of
-        TaxMode when TaxMode =/= undefined ->
-            TM = encode_invoice_line_tax_mode(TaxMode),
-            #{<<"TaxMode">> => {str, TM}};
-        undefined ->
-            #{}
-    end,
+    Metadata =
+        case genlib_map:get(<<"taxMode">>, Line) of
+            TaxMode when TaxMode =/= undefined ->
+                TM = encode_invoice_line_tax_mode(TaxMode),
+                #{<<"TaxMode">> => {str, TM}};
+            undefined ->
+                #{}
+        end,
     Price = encode_cash(genlib_map:get(<<"price">>, Line), Currency),
     #domain_InvoiceLine{
         product = genlib_map:get(<<"product">>, Line),
@@ -1949,7 +1873,7 @@ encode_invoice_line(Line, Currency) ->
         metadata = Metadata
     }.
 
-encode_invoice_line_tax_mode(#{<<"type">> := <<"InvoiceLineTaxVAT">>} = TaxMode)  ->
+encode_invoice_line_tax_mode(#{<<"type">> := <<"InvoiceLineTaxVAT">>} = TaxMode) ->
     %% for more info about taxMode look here:
     %% https://github.com/rbkmoney/starrys/blob/master/docs/settings.md
     genlib_map:get(<<"rate">>, TaxMode).
@@ -1970,22 +1894,22 @@ encode_payer_params(#{
     <<"customerID">> := ID
 }) ->
     {customer, #payproc_CustomerPayerParams{customer_id = ID}};
-
 encode_payer_params(#{
     <<"payerType">> := <<"PaymentResourcePayer">>,
     <<"paymentToolToken">> := Token,
     <<"paymentSession">> := EncodedSession,
     <<"contactInfo">> := ContactInfo
 }) ->
-    PaymentTool = case capi_crypto:decrypt_payment_tool_token(Token) of
-        unrecognized ->
-            encode_legacy_payment_tool_token(Token);
-        {ok, Result} ->
-            Result;
-        {error, {decryption_failed, _} = Error} ->
-            logger:warning("Payment tool token decryption failed: ~p", [Error]),
-            erlang:throw(invalid_token)
-    end,
+    PaymentTool =
+        case capi_crypto:decrypt_payment_tool_token(Token) of
+            unrecognized ->
+                encode_legacy_payment_tool_token(Token);
+            {ok, Result} ->
+                Result;
+            {error, {decryption_failed, _} = Error} ->
+                logger:warning("Payment tool token decryption failed: ~p", [Error]),
+                erlang:throw(invalid_token)
+        end,
     {ClientInfo, PaymentSession} = unwrap_payment_session(EncodedSession),
     {payment_resource, #payproc_PaymentResourcePayerParams{
         resource = #domain_DisposablePaymentResource{
@@ -2012,29 +1936,31 @@ encode_legacy_payment_tool_token(Token) ->
     end.
 
 decode_bank_card(#domain_BankCard{
-    'token'               = Token,
-    'payment_system'      = PaymentSystem,
-    'bin'                 = Bin,
-    'last_digits'         = LastDigits,
-    'token_provider'      = TokenProvider,
-    'issuer_country'      = IssuerCountry,
-    'bank_name'           = BankName,
-    'metadata'            = Metadata
+    'token' = Token,
+    'payment_system' = PaymentSystem,
+    'bin' = Bin,
+    'last_digits' = LastDigits,
+    'token_provider' = TokenProvider,
+    'issuer_country' = IssuerCountry,
+    'bank_name' = BankName,
+    'metadata' = Metadata
     % 'tokenization_method' = TokenizationMethod
 }) ->
-    capi_utils:map_to_base64url(genlib_map:compact(#{
-        <<"type">>                =>  <<"bank_card">>,
-        <<"token">>               => Token,
-        <<"payment_system">>      => PaymentSystem,
-        <<"bin">>                 => Bin,
-        <<"masked_pan">>          => LastDigits,
-        <<"token_provider">>      => TokenProvider,
-        <<"issuer_country">>      => IssuerCountry,
-        <<"bank_name"     >>      => BankName,
-        <<"metadata"      >>      => decode_bank_card_metadata(Metadata)
-        % TODO: Uncomment or delete this when we negotiate deploying non-breaking changes
-        % <<"tokenization_method">> => TokenizationMethod
-    })).
+    capi_utils:map_to_base64url(
+        genlib_map:compact(#{
+            <<"type">> => <<"bank_card">>,
+            <<"token">> => Token,
+            <<"payment_system">> => PaymentSystem,
+            <<"bin">> => Bin,
+            <<"masked_pan">> => LastDigits,
+            <<"token_provider">> => TokenProvider,
+            <<"issuer_country">> => IssuerCountry,
+            <<"bank_name">> => BankName,
+            <<"metadata">> => decode_bank_card_metadata(Metadata)
+            % TODO: Uncomment or delete this when we negotiate deploying non-breaking changes
+            % <<"tokenization_method">> => TokenizationMethod
+        })
+    ).
 
 decode_bank_card_metadata(undefined) ->
     undefined;
@@ -2061,7 +1987,7 @@ decode_digital_wallet(#domain_DigitalWallet{
 
 decode_crypto_wallet(CryptoCurrency) ->
     capi_utils:map_to_base64url(#{
-        <<"type"           >> => <<"crypto_wallet">>,
+        <<"type">> => <<"crypto_wallet">>,
         <<"crypto_currency">> => convert_crypto_currency_to_swag(CryptoCurrency)
     }).
 
@@ -2079,22 +2005,22 @@ encode_client_info(ClientInfo) ->
 
 encode_invoice_tpl_create_params(PartyID, Params) ->
     #payproc_InvoiceTemplateCreateParams{
-        party_id         = PartyID,
-        shop_id          = genlib_map:get(<<"shopID">>, Params),
+        party_id = PartyID,
+        shop_id = genlib_map:get(<<"shopID">>, Params),
         invoice_lifetime = encode_lifetime(Params),
-        product          = genlib_map:get(<<"product">>, Params),
-        description      = genlib_map:get(<<"description">>, Params),
-        details          = encode_invoice_tpl_details(Params),
-        context          = encode_invoice_context(Params)
+        product = genlib_map:get(<<"product">>, Params),
+        description = genlib_map:get(<<"description">>, Params),
+        details = encode_invoice_tpl_details(Params),
+        context = encode_invoice_context(Params)
     }.
 
 encode_invoice_tpl_update_params(Params, InvoiceTplGetter) ->
     #payproc_InvoiceTemplateUpdateParams{
         invoice_lifetime = encode_optional_invoice_tpl_lifetime(Params),
-        product          = genlib_map:get(<<"product">>, Params),
-        description      = genlib_map:get(<<"description">>, Params),
-        context          = encode_optional_context(Params),
-        details          = encode_optional_details(Params, InvoiceTplGetter)
+        product = genlib_map:get(<<"product">>, Params),
+        description = genlib_map:get(<<"description">>, Params),
+        context = encode_optional_context(Params),
+        details = encode_optional_details(Params, InvoiceTplGetter)
     }.
 
 encode_invoice_tpl_details(#{<<"product">> := Product, <<"cost">> := Cost}) ->
@@ -2186,14 +2112,14 @@ encode_lifetime(0, 0, 0) ->
     throw(zero_invoice_lifetime);
 encode_lifetime(DD, MM, YY) ->
     #domain_LifetimeInterval{
-        days   = DD,
+        days = DD,
         months = MM,
-        years  = YY
-      }.
+        years = YY
+    }.
 
 encode_shop_params(Params) ->
     #payproc_ShopParams{
-        location =  encode_shop_location(genlib_map:get(<<"location">>, Params)),
+        location = encode_shop_location(genlib_map:get(<<"location">>, Params)),
         details = encode_shop_details(genlib_map:get(<<"details">>, Params)),
         contract_id = genlib_map:get(<<"contractID">>, Params),
         payout_tool_id = genlib_map:get(<<"payoutToolID">>, Params)
@@ -2201,10 +2127,11 @@ encode_shop_params(Params) ->
 
 encode_shop_details(undefined) ->
     undefined;
-
-encode_shop_details(Details = #{
-    <<"name">> := Name
-}) ->
+encode_shop_details(
+    Details = #{
+        <<"name">> := Name
+    }
+) ->
     #domain_ShopDetails{
         name = Name,
         description = genlib_map:get(<<"description">>, Details)
@@ -2218,14 +2145,13 @@ encode_shop_location(#{
 
 encode_category_ref(undefined) ->
     undefined;
-
 encode_category_ref(Ref) ->
     #domain_CategoryRef{
         id = Ref
     }.
 
-encode_claim_changeset(Changeset, ReqCtx) when is_list(Changeset)->
-    lists:map(fun (C) -> encode_party_modification(C, ReqCtx) end, Changeset).
+encode_claim_changeset(Changeset, ReqCtx) when is_list(Changeset) ->
+    lists:map(fun(C) -> encode_party_modification(C, ReqCtx) end, Changeset).
 
 encode_party_modification(#{<<"partyModificationType">> := Type} = Modification, ReqCtx) ->
     case Type of
@@ -2236,36 +2162,37 @@ encode_party_modification(#{<<"partyModificationType">> := Type} = Modification,
     end.
 
 encode_contract_modification(#{<<"contractID">> := ContractID} = Modification, ReqCtx) ->
-    EncodedMod = case maps:get(<<"contractModificationType">>, Modification) of
-        <<"ContractCreation">> ->
-            PaymentInstitutionRef = genlib_map:get(<<"paymentInstitutionID">>, Modification),
-            {creation, #payproc_ContractParams{
-                contractor = encode_contractor(maps:get(<<"contractor">>, Modification)),
-                payment_institution = ensure_payment_institution(PaymentInstitutionRef, ReqCtx)
-            }};
-        <<"ContractTermination">> ->
-            {termination, #payproc_ContractTermination{
-                reason = encode_reason(maps:get(<<"reason">>, Modification))
-            }};
-        <<"ContractLegalAgreementBinding">> ->
-            {legal_agreement_binding, encode_legal_agreement(maps:get(<<"legalAgreement">>, Modification))};
-        <<"ContractAdjustmentCreation">> ->
-        % FIXME need swag supprot for template ref
-        %     {adjustment_modification, #payproc_ContractAdjustmentModificationUnit{
-        %         adjustment_id = maps:get(<<"adjustmentID">>, Modification),
-        %         modification = {creation, #payproc_ContractAdjustmentParams{
-        %             template = NOT_SUPPORTED
-        %         }}
-        %     }};
-            erlang:throw({encode_contract_modification, adjustment_creation_not_supported});
-        <<"ContractPayoutToolCreation">> ->
-            {payout_tool_modification, #payproc_PayoutToolModificationUnit{
-                payout_tool_id = maps:get(<<"payoutToolID">>, Modification),
-                modification   = {creation, encode_payout_tool_params(Modification)}
-            }};
-        <<"ContractReportingPreferencesChange">> ->
-            {report_preferences_modification, encode_report_preferences(Modification)}
-    end,
+    EncodedMod =
+        case maps:get(<<"contractModificationType">>, Modification) of
+            <<"ContractCreation">> ->
+                PaymentInstitutionRef = genlib_map:get(<<"paymentInstitutionID">>, Modification),
+                {creation, #payproc_ContractParams{
+                    contractor = encode_contractor(maps:get(<<"contractor">>, Modification)),
+                    payment_institution = ensure_payment_institution(PaymentInstitutionRef, ReqCtx)
+                }};
+            <<"ContractTermination">> ->
+                {termination, #payproc_ContractTermination{
+                    reason = encode_reason(maps:get(<<"reason">>, Modification))
+                }};
+            <<"ContractLegalAgreementBinding">> ->
+                {legal_agreement_binding, encode_legal_agreement(maps:get(<<"legalAgreement">>, Modification))};
+            <<"ContractAdjustmentCreation">> ->
+                % FIXME need swag supprot for template ref
+                %     {adjustment_modification, #payproc_ContractAdjustmentModificationUnit{
+                %         adjustment_id = maps:get(<<"adjustmentID">>, Modification),
+                %         modification = {creation, #payproc_ContractAdjustmentParams{
+                %             template = NOT_SUPPORTED
+                %         }}
+                %     }};
+                erlang:throw({encode_contract_modification, adjustment_creation_not_supported});
+            <<"ContractPayoutToolCreation">> ->
+                {payout_tool_modification, #payproc_PayoutToolModificationUnit{
+                    payout_tool_id = maps:get(<<"payoutToolID">>, Modification),
+                    modification = {creation, encode_payout_tool_params(Modification)}
+                }};
+            <<"ContractReportingPreferencesChange">> ->
+                {report_preferences_modification, encode_report_preferences(Modification)}
+        end,
     #payproc_ContractModificationUnit{
         id = ContractID,
         modification = EncodedMod
@@ -2277,31 +2204,32 @@ ensure_payment_institution(undefined, ReqCtx) ->
     capi_domain:get_default_payment_institution_ref(live, ReqCtx).
 
 encode_shop_modification(#{<<"shopID">> := ShopID} = Modification, _ReqCtx) ->
-    EncodedMod = case maps:get(<<"shopModificationType">>, Modification) of
-        <<"ShopCreation">> ->
-            {creation, encode_shop_params(Modification)};
-        <<"ShopAccountCreation">> ->
-            {shop_account_creation, #payproc_ShopAccountParams{
-                currency = encode_currency(maps:get(<<"currency">>, Modification))
-            }};
-        <<"ShopCategoryChange">> ->
-            {category_modification, encode_category_ref(maps:get(<<"categoryID">>, Modification))};
-        <<"ShopLocationChange">> ->
-            {location_modification, encode_shop_location(maps:get(<<"location">>, Modification))};
-        <<"ShopDetailsChange">> ->
-            {details_modification, encode_shop_details(maps:get(<<"details">>, Modification))};
-        <<"ShopContractBinding">> ->
-            {contract_modification, #payproc_ShopContractModification{
-                contract_id = maps:get(<<"contractID">>, Modification),
-                payout_tool_id = maps:get(<<"payoutToolID">>, Modification)
-            }};
-        <<"ShopPayoutToolChange">> ->
-            {payout_tool_modification, maps:get(<<"payoutToolID">>, Modification)};
-        <<"ShopPayoutScheduleChange">> ->
-            {payout_schedule_modification, #payproc_ScheduleModification{
-                schedule = encode_schedule_ref(genlib_map:get(<<"scheduleID">>, Modification))
-            }}
-    end,
+    EncodedMod =
+        case maps:get(<<"shopModificationType">>, Modification) of
+            <<"ShopCreation">> ->
+                {creation, encode_shop_params(Modification)};
+            <<"ShopAccountCreation">> ->
+                {shop_account_creation, #payproc_ShopAccountParams{
+                    currency = encode_currency(maps:get(<<"currency">>, Modification))
+                }};
+            <<"ShopCategoryChange">> ->
+                {category_modification, encode_category_ref(maps:get(<<"categoryID">>, Modification))};
+            <<"ShopLocationChange">> ->
+                {location_modification, encode_shop_location(maps:get(<<"location">>, Modification))};
+            <<"ShopDetailsChange">> ->
+                {details_modification, encode_shop_details(maps:get(<<"details">>, Modification))};
+            <<"ShopContractBinding">> ->
+                {contract_modification, #payproc_ShopContractModification{
+                    contract_id = maps:get(<<"contractID">>, Modification),
+                    payout_tool_id = maps:get(<<"payoutToolID">>, Modification)
+                }};
+            <<"ShopPayoutToolChange">> ->
+                {payout_tool_modification, maps:get(<<"payoutToolID">>, Modification)};
+            <<"ShopPayoutScheduleChange">> ->
+                {payout_schedule_modification, #payproc_ScheduleModification{
+                    schedule = encode_schedule_ref(genlib_map:get(<<"scheduleID">>, Modification))
+                }}
+        end,
     #payproc_ShopModificationUnit{
         id = ShopID,
         modification = EncodedMod
@@ -2329,9 +2257,9 @@ encode_payout_tool_params(#{
     }.
 
 encode_payout_tool_info(#{<<"detailsType">> := <<"PayoutToolDetailsBankAccount">>} = Tool) ->
-   {russian_bank_account, encode_russian_bank_account(Tool)};
+    {russian_bank_account, encode_russian_bank_account(Tool)};
 encode_payout_tool_info(#{<<"detailsType">> := <<"PayoutToolDetailsInternationalBankAccount">>} = Tool) ->
-   {international_bank_account, encode_international_bank_account(Tool)}.
+    {international_bank_account, encode_international_bank_account(Tool)}.
 
 encode_russian_bank_account(#{
     <<"account">> := Account,
@@ -2348,24 +2276,22 @@ encode_russian_bank_account(#{
 
 encode_international_bank_account(Acc) ->
     #domain_InternationalBankAccount{
-        iban           = genlib_map:get(<<"iban">>, Acc),
-        bank           = encode_international_bank_details(Acc),
+        iban = genlib_map:get(<<"iban">>, Acc),
+        bank = encode_international_bank_details(Acc),
         account_holder = genlib_map:get(<<"accountHolder">>, Acc)
-     }.
+    }.
 
 encode_international_bank_details(Acc) ->
     #domain_InternationalBankDetails{
-        bic     = genlib_map:get(<<"bic">>, Acc),
-        name    = genlib_map:get(<<"bankName">>, Acc),
+        bic = genlib_map:get(<<"bic">>, Acc),
+        name = genlib_map:get(<<"bankName">>, Acc),
         address = genlib_map:get(<<"bankAddress">>, Acc)
     }.
 
 encode_contractor(#{<<"contractorType">> := <<"PrivateEntity">>} = Contractor) ->
     {private_entity, encode_private_entity(Contractor)};
-
 encode_contractor(#{<<"contractorType">> := <<"LegalEntity">>} = Contractor) ->
     {legal_entity, encode_legal_entity(Contractor)};
-
 encode_contractor(#{<<"contractorType">> := <<"RegisteredUser">>} = Contractor) ->
     {registered_user, encode_registered_user(Contractor)}.
 
@@ -2378,7 +2304,7 @@ encode_private_entity(#{<<"entityType">> := <<"RussianPrivateEntity">>} = Entity
     }}.
 
 encode_legal_entity(#{<<"entityType">> := <<"RussianLegalEntity">>} = Entity) ->
-    {russian_legal_entity , #domain_RussianLegalEntity{
+    {russian_legal_entity, #domain_RussianLegalEntity{
         registered_name = maps:get(<<"registeredName">>, Entity),
         registered_number = maps:get(<<"registeredNumber">>, Entity),
         inn = maps:get(<<"inn">>, Entity),
@@ -2389,9 +2315,11 @@ encode_legal_entity(#{<<"entityType">> := <<"RussianLegalEntity">>} = Entity) ->
         representative_document = maps:get(<<"representativeDocument">>, Entity),
         russian_bank_account = encode_russian_bank_account(maps:get(<<"bankAccount">>, Entity))
     }};
-encode_legal_entity(#{
-    <<"entityType">> := <<"InternationalLegalEntity">>
-} = Entity) ->
+encode_legal_entity(
+    #{
+        <<"entityType">> := <<"InternationalLegalEntity">>
+    } = Entity
+) ->
     {international_legal_entity, #domain_InternationalLegalEntity{
         legal_name = genlib_map:get(<<"legalName">>, Entity),
         trading_name = genlib_map:get(<<"tradingName">>, Entity),
@@ -2423,17 +2351,18 @@ decode_residence(Residence) when is_atom(Residence) ->
 
 encode_flow(#{<<"type">> := <<"PaymentFlowInstant">>}) ->
     {instant, #payproc_InvoicePaymentParamsFlowInstant{}};
-
 encode_flow(#{<<"type">> := <<"PaymentFlowHold">>} = Entity) ->
     OnHoldExpiration = maps:get(<<"onHoldExpiration">>, Entity, <<"cancel">>),
     {hold, #payproc_InvoicePaymentParamsFlowHold{
         on_hold_expiration = binary_to_existing_atom(OnHoldExpiration, utf8)
     }}.
 
-encode_report_preferences(#{<<"serviceAcceptanceActPreferences">> := #{
-    <<"scheduleID">> := ScheduleID,
-    <<"signer">> := Signer
-}}) ->
+encode_report_preferences(#{
+    <<"serviceAcceptanceActPreferences">> := #{
+        <<"scheduleID">> := ScheduleID,
+        <<"signer">> := Signer
+    }
+}) ->
     #domain_ReportPreferences{
         service_acceptance_act_preferences = #domain_ServiceAcceptanceActPreferences{
             schedule = encode_schedule_ref(ScheduleID),
@@ -2445,9 +2374,9 @@ encode_report_preferences(_) ->
 
 encode_representative(Representative) ->
     #domain_Representative{
-        position  = maps:get(<<"position">>, Representative),
+        position = maps:get(<<"position">>, Representative),
         full_name = maps:get(<<"fullName">>, Representative),
-        document  = encode_representative_document(maps:get(<<"document">>, Representative))
+        document = encode_representative_document(maps:get(<<"document">>, Representative))
     }.
 
 encode_representative_document(#{<<"representativeDocumentType">> := <<"ArticlesOfAssociation">>}) ->
@@ -2502,20 +2431,22 @@ make_access_token(Fun, ID, PartyID, _Context) ->
     {ok, Token} = Fun(PartyID, ID, AdditionalClaims),
     #{<<"payload">> => Token}.
 
-encode_bank_card(#{
-    <<"token">> := Token,
-    <<"payment_system">> := PaymentSystem,
-    <<"masked_pan">> := LastDigits
-} = BankCard) ->
+encode_bank_card(
+    #{
+        <<"token">> := Token,
+        <<"payment_system">> := PaymentSystem,
+        <<"masked_pan">> := LastDigits
+    } = BankCard
+) ->
     {bank_card, #domain_BankCard{
-        'token'               = Token,
-        'payment_system'      = encode_payment_system(PaymentSystem),
-        'bin'                 = maps:get(<<"bin">>, BankCard, <<>>),
-        'last_digits'         = LastDigits,
-        'token_provider'      = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
-        'issuer_country'      = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
-        'bank_name'           = genlib_map:get(<<"bank_name">>, BankCard),
-        'metadata'            = encode_bank_card_metadata(genlib_map:get(<<"metadata">>, BankCard)),
+        'token' = Token,
+        'payment_system' = encode_payment_system(PaymentSystem),
+        'bin' = maps:get(<<"bin">>, BankCard, <<>>),
+        'last_digits' = LastDigits,
+        'token_provider' = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
+        'issuer_country' = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
+        'bank_name' = genlib_map:get(<<"bank_name">>, BankCard),
+        'metadata' = encode_bank_card_metadata(genlib_map:get(<<"metadata">>, BankCard)),
         'tokenization_method' = genlib_map:get(<<"tokenization_method">>, BankCard)
     }}.
 
@@ -2569,15 +2500,16 @@ encode_customer_binding_params(#{
         <<"paymentSession">> := EncodedSession
     }
 }) ->
-    PaymentTool = case capi_crypto:decrypt_payment_tool_token(Token) of
-        unrecognized ->
-            encode_legacy_payment_tool_token(Token);
-        {ok, Result} ->
-            Result;
-        {error, {decryption_failed, _} = Error} ->
-            logger:warning("Payment tool token decryption failed: ~p", [Error]),
-            erlang:throw(invalid_token)
-    end,
+    PaymentTool =
+        case capi_crypto:decrypt_payment_tool_token(Token) of
+            unrecognized ->
+                encode_legacy_payment_tool_token(Token);
+            {ok, Result} ->
+                Result;
+            {error, {decryption_failed, _} = Error} ->
+                logger:warning("Payment tool token decryption failed: ~p", [Error]),
+                erlang:throw(invalid_token)
+        end,
     {ClientInfo, PaymentSession} = unwrap_payment_session(EncodedSession),
     #payproc_CustomerBindingParams{
         payment_resource = #domain_DisposablePaymentResource{
@@ -2607,12 +2539,16 @@ encode_optional_refund_cash(
 encode_optional_refund_cash(_, _) ->
     undefined.
 
-decode_invoice_event(#payproc_Event{
-    id = EventID,
-    created_at = CreatedAt,
-    payload =  {invoice_changes, InvoiceChanges},
-    source =  {invoice_id, InvoiceID} %%@TODO deal with Party source
-}, Context) ->
+decode_invoice_event(
+    #payproc_Event{
+        id = EventID,
+        created_at = CreatedAt,
+        payload = {invoice_changes, InvoiceChanges},
+        %%@TODO deal with Party source
+        source = {invoice_id, InvoiceID}
+    },
+    Context
+) ->
     Changes = decode_invoice_changes(InvoiceID, InvoiceChanges, Context),
     case Changes of
         [_Something | _] ->
@@ -2650,7 +2586,6 @@ decode_invoice_change(
         <<"changeType">> => <<"InvoiceCreated">>,
         <<"invoice">> => decode_invoice(Invoice)
     };
-
 decode_invoice_change(
     _,
     {invoice_status_changed, #payproc_InvoiceStatusChanged{
@@ -2662,7 +2597,6 @@ decode_invoice_change(
         <<"changeType">> => <<"InvoiceStatusChanged">>,
         <<"status">> => genlib:to_binary(Status)
     };
-
 decode_invoice_change(
     InvoiceID,
     {invoice_payment_change, #payproc_InvoicePaymentChange{
@@ -2672,7 +2606,6 @@ decode_invoice_change(
     Context
 ) ->
     decode_payment_change(InvoiceID, PaymentID, Change, Context);
-
 decode_invoice_change(_, _, _) ->
     undefined.
 
@@ -2688,16 +2621,14 @@ decode_payment_change(
         <<"changeType">> => <<"PaymentStarted">>,
         <<"payment">> => decode_payment(InvoiceID, Payment)
     };
-
 decode_payment_change(
     _InvoiceID,
     PaymentID,
     {invoice_payment_session_change, #payproc_InvoicePaymentSessionChange{
-        payload = {session_interaction_requested,
-            #payproc_SessionInteractionRequested{
+        payload =
+            {session_interaction_requested, #payproc_SessionInteractionRequested{
                 interaction = Interaction
-            }
-        }
+            }}
     }},
     _Context
 ) ->
@@ -2706,7 +2637,6 @@ decode_payment_change(
         <<"paymentID">> => PaymentID,
         <<"userInteraction">> => decode_user_interaction(Interaction)
     };
-
 decode_payment_change(
     _InvoiceID,
     PaymentID,
@@ -2715,14 +2645,15 @@ decode_payment_change(
     }},
     _Context
 ) ->
-    genlib_map:compact(maps:merge(
-        #{
-            <<"changeType">> => <<"PaymentStatusChanged">>,
-            <<"paymentID">> => PaymentID
-        },
-        decode_payment_status(Status)
-    ));
-
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"changeType">> => <<"PaymentStatusChanged">>,
+                <<"paymentID">> => PaymentID
+            },
+            decode_payment_status(Status)
+        )
+    );
 decode_payment_change(
     InvoiceID,
     PaymentID,
@@ -2733,7 +2664,6 @@ decode_payment_change(
     Context
 ) ->
     decode_refund_change(InvoiceID, PaymentID, RefundID, Change, Context);
-
 decode_payment_change(_, _, _, _) ->
     undefined.
 
@@ -2751,7 +2681,6 @@ decode_refund_change(
         <<"paymentID">> => PaymentID,
         <<"refund">> => decode_refund_for_event(Refund, InvoiceID, PaymentID, Context)
     };
-
 decode_refund_change(
     _InvoiceID,
     PaymentID,
@@ -2761,15 +2690,16 @@ decode_refund_change(
     }},
     _Context
 ) ->
-    genlib_map:compact(maps:merge(
-        #{
-            <<"changeType">> => <<"RefundStatusChanged">>,
-            <<"paymentID">> => PaymentID,
-            <<"refundID">> => RefundID
-        },
-        decode_refund_status(Status)
-    ));
-
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"changeType">> => <<"RefundStatusChanged">>,
+                <<"paymentID">> => PaymentID,
+                <<"refundID">> => RefundID
+            },
+            decode_refund_status(Status)
+        )
+    );
 decode_refund_change(_, _, _, _, _) ->
     undefined.
 
@@ -2789,28 +2719,37 @@ decode_payment(InvoiceID, #domain_InvoicePayment{
     },
     flow = Flow
 }) ->
-    genlib_map:compact(maps:merge(#{
-        <<"id">> =>  PaymentID,
-        <<"invoiceID">> => InvoiceID,
-        <<"createdAt">> => CreatedAt,
-        % TODO whoops, nothing to get it from yet
-        <<"flow">> => decode_flow(Flow),
-        <<"amount">> => Amount,
-        <<"currency">> => decode_currency(Currency),
-        <<"payer">> => decode_payer(Payer)
-    }, decode_payment_status(Status))).
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"id">> => PaymentID,
+                <<"invoiceID">> => InvoiceID,
+                <<"createdAt">> => CreatedAt,
+                % TODO whoops, nothing to get it from yet
+                <<"flow">> => decode_flow(Flow),
+                <<"amount">> => Amount,
+                <<"currency">> => decode_currency(Currency),
+                <<"payer">> => decode_payer(Payer)
+            },
+            decode_payment_status(Status)
+        )
+    ).
 
-decode_payer({customer, #domain_CustomerPayer{
-    customer_id = ID
-}}) ->
+decode_payer(
+    {customer, #domain_CustomerPayer{
+        customer_id = ID
+    }}
+) ->
     #{
         <<"payerType">> => <<"CustomerPayer">>,
         <<"customerID">> => ID
     };
-decode_payer({payment_resource, #domain_PaymentResourcePayer{
-    resource = DisposablePaymentResource,
-    contact_info = ContactInfo
-}}) ->
+decode_payer(
+    {payment_resource, #domain_PaymentResourcePayer{
+        resource = DisposablePaymentResource,
+        contact_info = ContactInfo
+    }}
+) ->
     maps:merge(
         #{
             <<"payerType">> => <<"PaymentResourcePayer">>,
@@ -2844,11 +2783,11 @@ decode_bank_card_details(BankCard, V) ->
     LastDigits = decode_last_digits(BankCard#domain_BankCard.last_digits),
     Bin = decode_bank_card_bin(BankCard#domain_BankCard.bin),
     merge_and_compact(V, #{
-        <<"lastDigits">>     => LastDigits,
-        <<"bin">>            => Bin,
+        <<"lastDigits">> => LastDigits,
+        <<"bin">> => Bin,
         <<"cardNumberMask">> => decode_masked_pan(Bin, LastDigits),
-        <<"paymentSystem" >> => genlib:to_binary(BankCard#domain_BankCard.payment_system),
-        <<"tokenProvider" >> => decode_token_provider(BankCard#domain_BankCard.token_provider)
+        <<"paymentSystem">> => genlib:to_binary(BankCard#domain_BankCard.payment_system),
+        <<"tokenProvider">> => decode_token_provider(BankCard#domain_BankCard.token_provider)
         % TODO: Uncomment or delete this when we negotiate deploying non-breaking changes
         % <<"tokenizationMethod">> => genlib:to_binary(BankCard#domain_BankCard.tokenization_method)
     }).
@@ -2863,17 +2802,23 @@ decode_token_provider(Provider) when Provider /= undefined ->
 decode_token_provider(undefined) ->
     undefined.
 
-decode_payment_terminal_details(#domain_PaymentTerminal{
-    terminal_type = Type
-}, V) ->
+decode_payment_terminal_details(
+    #domain_PaymentTerminal{
+        terminal_type = Type
+    },
+    V
+) ->
     V#{
         <<"provider">> => genlib:to_binary(Type)
     }.
 
-decode_digital_wallet_details(#domain_DigitalWallet{
-    provider = qiwi,
-    id = ID
-}, V) ->
+decode_digital_wallet_details(
+    #domain_DigitalWallet{
+        provider = qiwi,
+        id = ID
+    },
+    V
+) ->
     V#{
         <<"digitalWalletDetailsType">> => <<"DigitalWalletDetailsQIWI">>,
         <<"phoneNumberMask">> => mask_phone_number(ID)
@@ -2905,12 +2850,13 @@ decode_contact_info(#domain_ContactInfo{
     }).
 
 decode_payment_status({Status, StatusInfo}) ->
-    Error = case StatusInfo of
-        #domain_InvoicePaymentFailed{failure = OperationFailure} ->
-            decode_operation_failure(OperationFailure);
-        _ ->
-            undefined
-    end,
+    Error =
+        case StatusInfo of
+            #domain_InvoicePaymentFailed{failure = OperationFailure} ->
+                decode_operation_failure(OperationFailure);
+            _ ->
+                undefined
+        end,
     #{
         <<"status">> => genlib:to_binary(Status),
         <<"error">> => Error
@@ -2918,9 +2864,12 @@ decode_payment_status({Status, StatusInfo}) ->
 
 decode_operation_failure({operation_timeout, _}) ->
     logic_error(timeout, <<"timeout">>);
-decode_operation_failure({failure, #domain_Failure{
-    code = Code
-} = Failure}) ->
+decode_operation_failure(
+    {failure,
+        #domain_Failure{
+            code = Code
+        } = Failure}
+) ->
     logic_error(Code, payproc_errors:format_raw(Failure)).
 
 decode_stat_payment(#merchstat_StatPayment{
@@ -2938,36 +2887,43 @@ decode_stat_payment(#merchstat_StatPayment{
     context = RawContext,
     location_info = Location
 }) ->
-    merge_and_compact(#{
-        <<"id">> =>  PaymentID,
-        <<"shortID">> => ShortID,
-        <<"invoiceID">> => InvoiceID,
-        <<"shopID">> => ShopID,
-        <<"createdAt">> => CreatedAt,
-        <<"amount">> => Amount,
-        <<"flow">> => decode_stat_payment_flow(Flow),
-        <<"fee">> => Fee,
-        <<"currency">> => Currency,
-        <<"payer">> => decode_stat_payer(Payer),
-        <<"geoLocationInfo">> => decode_geo_location_info(Location),
-        <<"metadata">> =>  decode_context(RawContext)
-    }, decode_stat_payment_status(Status)).
+    merge_and_compact(
+        #{
+            <<"id">> => PaymentID,
+            <<"shortID">> => ShortID,
+            <<"invoiceID">> => InvoiceID,
+            <<"shopID">> => ShopID,
+            <<"createdAt">> => CreatedAt,
+            <<"amount">> => Amount,
+            <<"flow">> => decode_stat_payment_flow(Flow),
+            <<"fee">> => Fee,
+            <<"currency">> => Currency,
+            <<"payer">> => decode_stat_payer(Payer),
+            <<"geoLocationInfo">> => decode_geo_location_info(Location),
+            <<"metadata">> => decode_context(RawContext)
+        },
+        decode_stat_payment_status(Status)
+    ).
 
-decode_stat_payer({customer, #merchstat_CustomerPayer{
-    customer_id = ID
-}}) ->
+decode_stat_payer(
+    {customer, #merchstat_CustomerPayer{
+        customer_id = ID
+    }}
+) ->
     #{
         <<"payerType">> => <<"CustomerPayer">>,
         <<"customerID">> => ID
     };
-decode_stat_payer({payment_resource, #merchstat_PaymentResourcePayer{
-    payment_tool = PaymentTool,
-    session_id = PaymentSession,
-    fingerprint = Fingerprint,
-    ip_address = IP,
-    phone_number = PhoneNumber,
-    email = Email
-}}) ->
+decode_stat_payer(
+    {payment_resource, #merchstat_PaymentResourcePayer{
+        payment_tool = PaymentTool,
+        session_id = PaymentSession,
+        fingerprint = Fingerprint,
+        ip_address = IP,
+        phone_number = PhoneNumber,
+        email = Email
+    }}
+) ->
     #{
         <<"payerType">> => <<"PaymentResourcePayer">>,
         <<"paymentToolToken">> => decode_stat_payment_tool_token(PaymentTool),
@@ -2997,24 +2953,27 @@ decode_stat_payment_flow(Flow) ->
 
 decode_flow({instant, _}) ->
     #{<<"type">> => <<"PaymentFlowInstant">>};
-
-decode_flow({hold, #domain_InvoicePaymentFlowHold{
-    'on_hold_expiration' = OnHoldExpiration,
-    'held_until' = HeldUntil
-}}) ->
+decode_flow(
+    {hold, #domain_InvoicePaymentFlowHold{
+        'on_hold_expiration' = OnHoldExpiration,
+        'held_until' = HeldUntil
+    }}
+) ->
     #{
         <<"type">> => <<"PaymentFlowHold">>,
         <<"onHoldExpiration">> => atom_to_binary(OnHoldExpiration, utf8),
         <<"heldUntil">> => HeldUntil
     }.
 
-merchstat_to_domain({bank_card, #merchstat_BankCard{
-    'token' = Token,
-    'payment_system' = PaymentSystem,
-    'bin' = Bin,
-    'masked_pan' = LastDigits,
-    'token_provider' = TokenProvider
-}}) ->
+merchstat_to_domain(
+    {bank_card, #merchstat_BankCard{
+        'token' = Token,
+        'payment_system' = PaymentSystem,
+        'bin' = Bin,
+        'masked_pan' = LastDigits,
+        'token_provider' = TokenProvider
+    }}
+) ->
     {bank_card, #domain_BankCard{
         'token' = Token,
         'payment_system' = PaymentSystem,
@@ -3022,38 +2981,41 @@ merchstat_to_domain({bank_card, #merchstat_BankCard{
         'last_digits' = LastDigits,
         'token_provider' = TokenProvider
     }};
-
-merchstat_to_domain({payment_terminal, #merchstat_PaymentTerminal{
-    terminal_type = Type}}
+merchstat_to_domain(
+    {payment_terminal, #merchstat_PaymentTerminal{
+        terminal_type = Type
+    }}
 ) ->
     {payment_terminal, #domain_PaymentTerminal{terminal_type = Type}};
-merchstat_to_domain({digital_wallet, #merchstat_DigitalWallet{
-    provider = Provider,
-    id       = ID
-}}) ->
+merchstat_to_domain(
+    {digital_wallet, #merchstat_DigitalWallet{
+        provider = Provider,
+        id = ID
+    }}
+) ->
     {digital_wallet, #domain_DigitalWallet{
         provider = Provider,
-        id       = ID
+        id = ID
     }};
 merchstat_to_domain({bank_card, #merchstat_PayoutCard{card = BankCard}}) ->
     merchstat_to_domain({bank_card, BankCard});
-merchstat_to_domain({bank_account,
-    {russian_payout_account, #merchstat_RussianPayoutAccount{
-        bank_account = #merchstat_RussianBankAccount{
-            account = Account,
-            bank_name = BankName,
-            bank_post_account = BankPostAccount,
-            bank_bik = BankBik
-        }
-    }}
-}) ->
+merchstat_to_domain(
+    {bank_account,
+        {russian_payout_account, #merchstat_RussianPayoutAccount{
+            bank_account = #merchstat_RussianBankAccount{
+                account = Account,
+                bank_name = BankName,
+                bank_post_account = BankPostAccount,
+                bank_bik = BankBik
+            }
+        }}}
+) ->
     {russian_bank_account, #domain_RussianBankAccount{
         account = Account,
         bank_name = BankName,
         bank_post_account = BankPostAccount,
         bank_bik = BankBik
     }};
-
 merchstat_to_domain({bank_account, {international_payout_account, PayoutAccount}}) ->
     #merchstat_InternationalPayoutAccount{bank_account = BankAccount} = PayoutAccount,
     {international_bank_account, merchstat_to_domain({international_bank_account, BankAccount})};
@@ -3061,10 +3023,10 @@ merchstat_to_domain({international_bank_account, undefined}) ->
     undefined;
 merchstat_to_domain({international_bank_account, BankAccount = #merchstat_InternationalBankAccount{}}) ->
     #domain_InternationalBankAccount{
-        number         = BankAccount#merchstat_InternationalBankAccount.number,
-        iban           = BankAccount#merchstat_InternationalBankAccount.iban,
+        number = BankAccount#merchstat_InternationalBankAccount.number,
+        iban = BankAccount#merchstat_InternationalBankAccount.iban,
         account_holder = BankAccount#merchstat_InternationalBankAccount.account_holder,
-        bank           = merchstat_to_domain(
+        bank = merchstat_to_domain(
             {international_bank_details, BankAccount#merchstat_InternationalBankAccount.bank}
         ),
         correspondent_account = merchstat_to_domain(
@@ -3075,13 +3037,12 @@ merchstat_to_domain({international_bank_details, undefined}) ->
     undefined;
 merchstat_to_domain({international_bank_details, Bank = #merchstat_InternationalBankDetails{}}) ->
     #domain_InternationalBankDetails{
-            bic     = Bank#merchstat_InternationalBankDetails.bic,
-            name    = Bank#merchstat_InternationalBankDetails.name,
-            address = Bank#merchstat_InternationalBankDetails.address,
-            country = Bank#merchstat_InternationalBankDetails.country,
-            aba_rtn = Bank#merchstat_InternationalBankDetails.aba_rtn
+        bic = Bank#merchstat_InternationalBankDetails.bic,
+        name = Bank#merchstat_InternationalBankDetails.name,
+        address = Bank#merchstat_InternationalBankDetails.address,
+        country = Bank#merchstat_InternationalBankDetails.country,
+        aba_rtn = Bank#merchstat_InternationalBankDetails.aba_rtn
     };
-
 merchstat_to_domain({Status, #merchstat_InvoicePaymentPending{}}) ->
     {Status, #domain_InvoicePaymentPending{}};
 merchstat_to_domain({Status, #merchstat_InvoicePaymentProcessed{}}) ->
@@ -3092,15 +3053,19 @@ merchstat_to_domain({Status, #merchstat_InvoicePaymentCancelled{}}) ->
     {Status, #domain_InvoicePaymentCancelled{}};
 merchstat_to_domain({Status, #merchstat_InvoicePaymentRefunded{}}) ->
     {Status, #domain_InvoicePaymentRefunded{}};
-merchstat_to_domain({Status, #merchstat_InvoicePaymentFailed{
-    failure = {failure, Failure}
-}}) ->
+merchstat_to_domain(
+    {Status, #merchstat_InvoicePaymentFailed{
+        failure = {failure, Failure}
+    }}
+) ->
     {Status, #domain_InvoicePaymentFailed{
         failure = {failure, Failure}
     }};
-merchstat_to_domain({Status, #merchstat_InvoicePaymentFailed{
-    failure = {operation_timeout, #merchstat_OperationTimeout{}}
-}}) ->
+merchstat_to_domain(
+    {Status, #merchstat_InvoicePaymentFailed{
+        failure = {operation_timeout, #merchstat_OperationTimeout{}}
+    }}
+) ->
     {Status, #domain_InvoicePaymentFailed{
         failure = {operation_timeout, #domain_OperationTimeout{}}
     }};
@@ -3114,20 +3079,22 @@ merchstat_to_domain({Status, #merchstat_InvoiceFulfilled{details = Details}}) ->
     {Status, #domain_InvoiceFulfilled{details = Details}};
 merchstat_to_domain({instant, #merchstat_InvoicePaymentFlowInstant{}}) ->
     {instant, #domain_InvoicePaymentFlowInstant{}};
-merchstat_to_domain({hold, #merchstat_InvoicePaymentFlowHold{
-    on_hold_expiration = OnHoldExpiration,
-    held_until         = HeldUntil
-}}) ->
+merchstat_to_domain(
+    {hold, #merchstat_InvoicePaymentFlowHold{
+        on_hold_expiration = OnHoldExpiration,
+        held_until = HeldUntil
+    }}
+) ->
     {hold, #domain_InvoicePaymentFlowHold{
         on_hold_expiration = OnHoldExpiration,
-        held_until         = HeldUntil
+        held_until = HeldUntil
     }}.
 
 decode_invoice(#domain_Invoice{
     id = InvoiceID,
     created_at = CreatedAt,
     status = InvoiceStatus,
-    due  = DueDate,
+    due = DueDate,
     details = #domain_InvoiceDetails{
         product = Product,
         description = Description,
@@ -3140,25 +3107,31 @@ decode_invoice(#domain_Invoice{
     context = RawContext,
     shop_id = ShopID
 }) ->
-    genlib_map:compact(maps:merge(#{
-        <<"id">> => InvoiceID,
-        <<"shopID">> => ShopID,
-        <<"createdAt">> => CreatedAt,
-        <<"dueDate">> => DueDate,
-        <<"amount">> => Amount,
-        <<"currency">> =>  decode_currency(Currency),
-        <<"metadata">> =>  decode_context(RawContext),
-        <<"product">> => Product,
-        <<"description">> => Description,
-        <<"cart">> => decode_invoice_cart(Cart)
-    }, decode_invoice_status(InvoiceStatus))).
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"id">> => InvoiceID,
+                <<"shopID">> => ShopID,
+                <<"createdAt">> => CreatedAt,
+                <<"dueDate">> => DueDate,
+                <<"amount">> => Amount,
+                <<"currency">> => decode_currency(Currency),
+                <<"metadata">> => decode_context(RawContext),
+                <<"product">> => Product,
+                <<"description">> => Description,
+                <<"cart">> => decode_invoice_cart(Cart)
+            },
+            decode_invoice_status(InvoiceStatus)
+        )
+    ).
 
 decode_invoice_status({Status, StatusInfo}) ->
-    Reason = case StatusInfo of
-        #domain_InvoiceCancelled{details = Details} -> Details;
-        #domain_InvoiceFulfilled{details = Details} -> Details;
-        _ -> undefined
-    end,
+    Reason =
+        case StatusInfo of
+            #domain_InvoiceCancelled{details = Details} -> Details;
+            #domain_InvoiceFulfilled{details = Details} -> Details;
+            _ -> undefined
+        end,
     #{
         <<"status">> => genlib:to_binary(Status),
         <<"reason">> => Reason
@@ -3187,8 +3160,8 @@ decode_invoice_line_tax_mode(#{<<"TaxMode">> := {str, TM}}) ->
     %% for more info about taxMode look here:
     %% https://github.com/rbkmoney/starrys/blob/master/docs/settings.md
     #{
-       <<"type">> => <<"InvoiceLineTaxVAT">>,
-       <<"rate">> => TM
+        <<"type">> => <<"InvoiceLineTaxVAT">>,
+        <<"rate">> => TM
     };
 decode_invoice_line_tax_mode(_) ->
     undefined.
@@ -3203,10 +3176,11 @@ decode_invoice_tpl(#domain_InvoiceTemplate{
         months = MM,
         years = YY
     },
-    details = {product, #domain_InvoiceTemplateProduct{
-        product = Product,
-        price = Cost
-    }},
+    details =
+        {product, #domain_InvoiceTemplateProduct{
+            product = Product,
+            price = Cost
+        }},
     context = RawContext
 }) ->
     genlib_map:compact(#{
@@ -3215,9 +3189,9 @@ decode_invoice_tpl(#domain_InvoiceTemplate{
         <<"product">> => Product,
         <<"description">> => Description,
         <<"lifetime">> => #{
-            <<"days">>   => undef_to_zero(DD),
+            <<"days">> => undef_to_zero(DD),
             <<"months">> => undef_to_zero(MM),
-            <<"years">>  => undef_to_zero(YY)
+            <<"years">> => undef_to_zero(YY)
         },
         <<"cost">> => decode_invoice_tpl_cost(Cost),
         <<"metadata">> => decode_context(RawContext)
@@ -3233,8 +3207,7 @@ decode_context(#'Content'{
     data = InvoiceContext
 }) ->
     % @TODO deal with non json contexts
-    jsx:decode(InvoiceContext,  [return_maps]);
-
+    jsx:decode(InvoiceContext, [return_maps]);
 decode_context(undefined) ->
     undefined.
 
@@ -3242,18 +3215,18 @@ decode_invoice_tpl_cost({unlim, _}) ->
     #{
         <<"invoiceTemplateCostType">> => <<"InvoiceTemplateCostUnlim">>
     };
-
 decode_invoice_tpl_cost({fixed, #domain_Cash{amount = Amount, currency = Currency}}) ->
     #{
         <<"invoiceTemplateCostType">> => <<"InvoiceTemplateCostFixed">>,
         <<"currency">> => decode_currency(Currency),
         <<"amount">> => Amount
     };
-
-decode_invoice_tpl_cost({range, #domain_CashRange{
-    upper = {_, #domain_Cash{amount = UpperBound, currency = Currency}},
-    lower = {_, #domain_Cash{amount = LowerBound, currency = Currency}}
-}}) ->
+decode_invoice_tpl_cost(
+    {range, #domain_CashRange{
+        upper = {_, #domain_Cash{amount = UpperBound, currency = Currency}},
+        lower = {_, #domain_Cash{amount = LowerBound, currency = Currency}}
+    }}
+) ->
     #{
         <<"invoiceTemplateCostType">> => <<"InvoiceTemplateCostRange">>,
         <<"currency">> => decode_currency(Currency),
@@ -3278,37 +3251,41 @@ decode_contracts_map(Contracts, Contractors) ->
     decode_map(Contracts, fun(C) -> decode_contract(C, Contractors) end).
 
 decode_shops_map(Shops) ->
-    decode_map(Shops, fun (S) -> decode_shop(S) end).
+    decode_map(Shops, fun(S) -> decode_shop(S) end).
 
 decode_map(Items, Fun) ->
     lists:map(Fun, maps:values(Items)).
 
 decode_contract(Contract, Contractors) ->
-    merge_and_compact(#{
-        <<"id"                  >> => Contract#domain_Contract.id,
-        <<"createdAt"           >> => Contract#domain_Contract.created_at,
-        <<"contractor"          >> => decode_contractor(get_contractor(Contract, Contractors)),
-        <<"paymentInstitutionID">> => decode_payment_institution_ref(Contract#domain_Contract.payment_institution),
-        <<"validSince"          >> => Contract#domain_Contract.valid_since,
-        <<"validUntil"          >> => Contract#domain_Contract.valid_until,
-        <<"legalAgreement"      >> => decode_optional(
-            Contract#domain_Contract.legal_agreement,
-            fun decode_legal_agreement/1
-        ),
-        <<"reportingPreferences">> => decode_optional(
-            Contract#domain_Contract.report_preferences,
-            fun decode_reporting_preferences/1
-        )
-    }, decode_contract_status(Contract#domain_Contract.status)).
+    merge_and_compact(
+        #{
+            <<"id">> => Contract#domain_Contract.id,
+            <<"createdAt">> => Contract#domain_Contract.created_at,
+            <<"contractor">> => decode_contractor(get_contractor(Contract, Contractors)),
+            <<"paymentInstitutionID">> => decode_payment_institution_ref(Contract#domain_Contract.payment_institution),
+            <<"validSince">> => Contract#domain_Contract.valid_since,
+            <<"validUntil">> => Contract#domain_Contract.valid_until,
+            <<"legalAgreement">> => decode_optional(
+                Contract#domain_Contract.legal_agreement,
+                fun decode_legal_agreement/1
+            ),
+            <<"reportingPreferences">> => decode_optional(
+                Contract#domain_Contract.report_preferences,
+                fun decode_reporting_preferences/1
+            )
+        },
+        decode_contract_status(Contract#domain_Contract.status)
+    ).
 
 decode_contract_status({active, _}) ->
     #{
         <<"status">> => <<"active">>
     };
-
-decode_contract_status({terminated, #domain_ContractTerminated{
-    terminated_at = TerminatedAt
-}}) ->
+decode_contract_status(
+    {terminated, #domain_ContractTerminated{
+        terminated_at = TerminatedAt
+    }}
+) ->
     #{
         <<"status">> => <<"terminated">>,
         <<"terminatedAt">> => TerminatedAt
@@ -3340,12 +3317,15 @@ decode_payout_tool_params(Currency, Info) ->
         <<"details">> => decode_payout_tool_details(Info)
     }.
 
-decode_russian_bank_account(#domain_RussianBankAccount{
-    account = Account,
-    bank_name = BankName,
-    bank_post_account = BankPostAccount,
-    bank_bik = BankBik
-}, V) ->
+decode_russian_bank_account(
+    #domain_RussianBankAccount{
+        account = Account,
+        bank_name = BankName,
+        bank_post_account = BankPostAccount,
+        bank_bik = BankBik
+    },
+    V
+) ->
     V#{
         <<"account">> => Account,
         <<"bankName">> => BankName,
@@ -3380,17 +3360,17 @@ decode_payment_institution_ref(#domain_PaymentInstitutionRef{id = Ref}) ->
 
 decode_shop(Shop) ->
     genlib_map:compact(#{
-        <<"id"          >> => Shop#domain_Shop.id,
-        <<"createdAt"   >> => Shop#domain_Shop.created_at,
-        <<"isBlocked"   >> => is_blocked(Shop#domain_Shop.blocking),
-        <<"isSuspended" >> => is_suspended(Shop#domain_Shop.suspension),
-        <<"categoryID"  >> => decode_category_ref(Shop#domain_Shop.category),
-        <<"details"     >> => decode_shop_details(Shop#domain_Shop.details),
-        <<"location"    >> => decode_shop_location(Shop#domain_Shop.location),
-        <<"contractID"  >> => Shop#domain_Shop.contract_id,
+        <<"id">> => Shop#domain_Shop.id,
+        <<"createdAt">> => Shop#domain_Shop.created_at,
+        <<"isBlocked">> => is_blocked(Shop#domain_Shop.blocking),
+        <<"isSuspended">> => is_suspended(Shop#domain_Shop.suspension),
+        <<"categoryID">> => decode_category_ref(Shop#domain_Shop.category),
+        <<"details">> => decode_shop_details(Shop#domain_Shop.details),
+        <<"location">> => decode_shop_location(Shop#domain_Shop.location),
+        <<"contractID">> => Shop#domain_Shop.contract_id,
         <<"payoutToolID">> => Shop#domain_Shop.payout_tool_id,
-        <<"scheduleID"  >> => decode_business_schedule_ref(Shop#domain_Shop.payout_schedule),
-        <<"account"     >> => decode_shop_account(Shop#domain_Shop.account)
+        <<"scheduleID">> => decode_business_schedule_ref(Shop#domain_Shop.payout_schedule),
+        <<"account">> => decode_shop_account(Shop#domain_Shop.account)
     }).
 
 decode_shop_details(#domain_ShopDetails{
@@ -3398,8 +3378,8 @@ decode_shop_details(#domain_ShopDetails{
     description = Description
 }) ->
     genlib_map:compact(#{
-      <<"name">> => Name,
-      <<"description">> => Description
+        <<"name">> => Name,
+        <<"description">> => Description
     }).
 
 decode_shop_location({url, Location}) ->
@@ -3410,27 +3390,27 @@ decode_shop_location({url, Location}) ->
 
 decode_contractor({legal_entity, LegalEntity}) ->
     maps:merge(#{<<"contractorType">> => <<"LegalEntity">>}, decode_legal_entity(LegalEntity));
-
 decode_contractor({private_entity, PrivateEntity}) ->
     maps:merge(#{<<"contractorType">> => <<"PrivateEntity">>}, decode_private_entity(PrivateEntity));
-
 decode_contractor({registered_user, RegisteredUser}) ->
     maps:merge(#{<<"contractorType">> => <<"RegisteredUser">>}, decode_registered_user(RegisteredUser)).
 
-decode_legal_entity({
-    russian_legal_entity,
-    #domain_RussianLegalEntity{
-        registered_name = RegisteredName,
-        registered_number = RegisteredNumber,
-        inn = Inn,
-        actual_address = ActualAddress,
-        post_address = PostAddress,
-        representative_position = RepresentativePosition,
-        representative_full_name = RepresentativeFullName,
-        representative_document = RepresentativeDocument,
-        russian_bank_account = BankAccount
+decode_legal_entity(
+    {
+        russian_legal_entity,
+        #domain_RussianLegalEntity{
+            registered_name = RegisteredName,
+            registered_number = RegisteredNumber,
+            inn = Inn,
+            actual_address = ActualAddress,
+            post_address = PostAddress,
+            representative_position = RepresentativePosition,
+            representative_full_name = RepresentativeFullName,
+            representative_document = RepresentativeDocument,
+            russian_bank_account = BankAccount
+        }
     }
-}) ->
+) ->
     #{
         <<"entityType">> => <<"RussianLegalEntity">>,
         <<"registeredName">> => RegisteredName,
@@ -3443,16 +3423,18 @@ decode_legal_entity({
         <<"representativeDocument">> => RepresentativeDocument,
         <<"bankAccount">> => decode_russian_bank_account(BankAccount, #{})
     };
-decode_legal_entity({
-    international_legal_entity,
-    #domain_InternationalLegalEntity{
-        legal_name = LegalName,
-        trading_name = TradingName,
-        registered_address = RegisteredOffice,
-        actual_address = PrincipalPlaceOfBusiness,
-        registered_number = RegisteredNumber
+decode_legal_entity(
+    {
+        international_legal_entity,
+        #domain_InternationalLegalEntity{
+            legal_name = LegalName,
+            trading_name = TradingName,
+            registered_address = RegisteredOffice,
+            actual_address = PrincipalPlaceOfBusiness,
+            registered_number = RegisteredNumber
+        }
     }
-}) ->
+) ->
     genlib_map:compact(#{
         <<"entityType">> => <<"InternationalLegalEntity">>,
         <<"legalName">> => LegalName,
@@ -3464,11 +3446,11 @@ decode_legal_entity({
 
 decode_private_entity({russian_private_entity, PrivateEntity}) ->
     #{
-        <<"entityType">>    => <<"RussianPrivateEntity">>,
-        <<"firstName">>     => PrivateEntity#domain_RussianPrivateEntity.first_name,
-        <<"secondName">>    => PrivateEntity#domain_RussianPrivateEntity.second_name,
-        <<"middleName">>    => PrivateEntity#domain_RussianPrivateEntity.middle_name,
-        <<"contactInfo">>   => decode_contact_info(PrivateEntity#domain_RussianPrivateEntity.contact_info)
+        <<"entityType">> => <<"RussianPrivateEntity">>,
+        <<"firstName">> => PrivateEntity#domain_RussianPrivateEntity.first_name,
+        <<"secondName">> => PrivateEntity#domain_RussianPrivateEntity.second_name,
+        <<"middleName">> => PrivateEntity#domain_RussianPrivateEntity.middle_name,
+        <<"contactInfo">> => decode_contact_info(PrivateEntity#domain_RussianPrivateEntity.contact_info)
     }.
 
 decode_registered_user(#domain_RegisteredUser{email = Email}) ->
@@ -3508,7 +3490,6 @@ decode_stat_info(payments_conversion_stat, Response) ->
         <<"totalCount">> => genlib:to_int(maps:get(<<"total_count">>, Response)),
         <<"conversion">> => genlib:to_float(maps:get(<<"conversion">>, Response))
     };
-
 decode_stat_info(payments_geo_stat, Response) ->
     #{
         <<"offset">> => genlib:to_int(maps:get(<<"offset">>, Response)),
@@ -3517,7 +3498,6 @@ decode_stat_info(payments_geo_stat, Response) ->
         <<"profit">> => genlib:to_int(maps:get(<<"amount_with_fee">>, Response)),
         <<"revenue">> => genlib:to_int(maps:get(<<"amount_without_fee">>, Response))
     };
-
 decode_stat_info(payments_turnover, Response) ->
     #{
         <<"offset">> => genlib:to_int(maps:get(<<"offset">>, Response)),
@@ -3525,20 +3505,19 @@ decode_stat_info(payments_turnover, Response) ->
         <<"profit">> => genlib:to_int(maps:get(<<"amount_with_fee">>, Response)),
         <<"revenue">> => genlib:to_int(maps:get(<<"amount_without_fee">>, Response))
     };
-
 decode_stat_info(customers_rate_stat, Response) ->
     #{
         <<"uniqueCount">> => genlib:to_int(maps:get(<<"unic_count">>, Response))
     };
-
 decode_stat_info(payments_pmt_cards_stat, Response) ->
     #{
-        <<"statType">> => <<"PaymentMethodBankCardStat">>, %% @TODO deal with nested responses decoding
+        %% @TODO deal with nested responses decoding
+        <<"statType">> => <<"PaymentMethodBankCardStat">>,
         <<"offset">> => genlib:to_int(maps:get(<<"offset">>, Response)),
-        <<"totalCount">> =>  genlib:to_int(maps:get(<<"total_count">>, Response)),
-        <<"paymentSystem">> =>  maps:get(<<"payment_system">>, Response),
+        <<"totalCount">> => genlib:to_int(maps:get(<<"total_count">>, Response)),
+        <<"paymentSystem">> => maps:get(<<"payment_system">>, Response),
         <<"profit">> => genlib:to_int(maps:get(<<"amount_with_fee">>, Response)),
-        <<"revenue">> =>  genlib:to_int(maps:get(<<"amount_without_fee">>, Response))
+        <<"revenue">> => genlib:to_int(maps:get(<<"amount_without_fee">>, Response))
     }.
 
 decode_stat_invoice(#merchstat_StatInvoice{
@@ -3554,18 +3533,23 @@ decode_stat_invoice(#merchstat_StatInvoice{
     context = RawContext,
     cart = Cart
 }) ->
-    genlib_map:compact(maps:merge(#{
-        <<"id">> => InvoiceID,
-        <<"shopID">> => ShopID,
-        <<"createdAt">> => CreatedAt,
-        <<"dueDate">> => DueDate,
-        <<"amount">> => Amount,
-        <<"currency">> =>  Currency,
-        <<"metadata">> =>  decode_context(RawContext),
-        <<"product">> => Product,
-        <<"description">> => Description,
-        <<"cart">> => decode_invoice_cart(Cart)
-    }, decode_stat_invoice_status(InvoiceStatus))).
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"id">> => InvoiceID,
+                <<"shopID">> => ShopID,
+                <<"createdAt">> => CreatedAt,
+                <<"dueDate">> => DueDate,
+                <<"amount">> => Amount,
+                <<"currency">> => Currency,
+                <<"metadata">> => decode_context(RawContext),
+                <<"product">> => Product,
+                <<"description">> => Description,
+                <<"cart">> => decode_invoice_cart(Cart)
+            },
+            decode_stat_invoice_status(InvoiceStatus)
+        )
+    ).
 
 decode_stat_invoice_status(Status) ->
     decode_invoice_status(merchstat_to_domain(Status)).
@@ -3598,24 +3582,27 @@ decode_refund(#domain_InvoicePaymentRefund{
         currency = Currency
     }
 }) ->
-    genlib_map:compact(maps:merge(
-        #{
-            <<"id">> => ID,
-            <<"createdAt">> => CreatedAt,
-            <<"reason">> => Reason,
-            <<"amount">> => Amount,
-            <<"currency">> => decode_currency(Currency)
-        },
-        decode_refund_status(Status)
-    )).
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"id">> => ID,
+                <<"createdAt">> => CreatedAt,
+                <<"reason">> => Reason,
+                <<"amount">> => Amount,
+                <<"currency">> => decode_currency(Currency)
+            },
+            decode_refund_status(Status)
+        )
+    ).
 
 decode_refund_status({Status, StatusInfo}) ->
-    Error = case StatusInfo of
-        #domain_InvoicePaymentRefundFailed{failure = OperationFailure} ->
-            decode_operation_failure(OperationFailure);
-        _ ->
-            undefined
-    end,
+    Error =
+        case StatusInfo of
+            #domain_InvoicePaymentRefundFailed{failure = OperationFailure} ->
+                decode_operation_failure(OperationFailure);
+            _ ->
+                undefined
+        end,
     #{
         <<"status">> => genlib:to_binary(Status),
         <<"error">> => Error
@@ -3632,16 +3619,21 @@ decode_stat_payout(#merchstat_StatPayout{
     type = PayoutType,
     summary = PayoutSummary
 }) ->
-    genlib_map:compact(maps:merge(#{
-        <<"id">> => PayoutID,
-        <<"shopID">> => ShopID,
-        <<"createdAt">> => CreatedAt,
-        <<"amount">> => Amount,
-        <<"fee">> => Fee,
-        <<"currency">> => Currency,
-        <<"payoutToolDetails">> => decode_stat_payout_tool_details(PayoutType),
-        <<"payoutSummary">> => decode_stat_payout_summary(PayoutSummary)
-    }, decode_stat_payout_status(PayoutStatus))).
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"id">> => PayoutID,
+                <<"shopID">> => ShopID,
+                <<"createdAt">> => CreatedAt,
+                <<"amount">> => Amount,
+                <<"fee">> => Fee,
+                <<"currency">> => Currency,
+                <<"payoutToolDetails">> => decode_stat_payout_tool_details(PayoutType),
+                <<"payoutSummary">> => decode_stat_payout_summary(PayoutSummary)
+            },
+            decode_stat_payout_status(PayoutStatus)
+        )
+    ).
 
 decode_stat_payout_status({cancelled, #merchstat_PayoutCancelled{details = Details}}) ->
     #{
@@ -3694,10 +3686,7 @@ encode_payout_type('PayoutAccount') ->
 encode_payout_type(undefined) ->
     undefined.
 
-create_dsl(QueryType, QueryBody, QueryParams) when
-    is_atom(QueryType),
-    is_map(QueryBody),
-    is_map(QueryParams) ->
+create_dsl(QueryType, QueryBody, QueryParams) when is_atom(QueryType), is_map(QueryBody), is_map(QueryParams) ->
     Query = maps:put(genlib:to_binary(QueryType), genlib_map:compact(QueryBody), #{}),
     Basic = #{
         <<"query">> => Query
@@ -3714,9 +3703,8 @@ encode_payment_method(undefined) ->
 filter_claims(ClaimStatus, Claims) ->
     lists:filter(
         fun(C) ->
-            is_claim_status_equals(ClaimStatus, C)
-            andalso
-            (not is_wallet_claim(C))
+            is_claim_status_equals(ClaimStatus, C) andalso
+                (not is_wallet_claim(C))
         end,
         Claims
     ).
@@ -3755,15 +3743,20 @@ is_wallet_change({contractor_modification, _}) ->
     true;
 is_wallet_change({wallet_modification, _}) ->
     true;
-is_wallet_change({contract_modification, #payproc_ContractModificationUnit{
-    modification = {creation, #payproc_ContractParams{
-        contractor = undefined
+is_wallet_change(
+    {contract_modification, #payproc_ContractModificationUnit{
+        modification =
+            {creation, #payproc_ContractParams{
+                contractor = undefined
+            }}
     }}
-}}) ->
+) ->
     true;
-is_wallet_change({contract_modification, #payproc_ContractModificationUnit{
-    modification = {contractor_modification, _}
-}}) ->
+is_wallet_change(
+    {contract_modification, #payproc_ContractModificationUnit{
+        modification = {contractor_modification, _}
+    }}
+) ->
     true;
 is_wallet_change(_) ->
     false.
@@ -3772,23 +3765,24 @@ decode_claim_status({'pending', _}) ->
     #{
         <<"status">> => <<"ClaimPending">>
     };
-
 decode_claim_status({'accepted', #payproc_ClaimAccepted{}}) ->
     #{
         <<"status">> => <<"ClaimAccepted">>
     };
-
-decode_claim_status({'denied', #payproc_ClaimDenied{
-    reason = Reason
-}}) ->
+decode_claim_status(
+    {'denied', #payproc_ClaimDenied{
+        reason = Reason
+    }}
+) ->
     #{
         <<"status">> => <<"ClaimDenied">>,
         <<"reason">> => Reason
     };
-
-decode_claim_status({'revoked', #payproc_ClaimRevoked{
-    reason = Reason
-}}) ->
+decode_claim_status(
+    {'revoked', #payproc_ClaimRevoked{
+        reason = Reason
+    }}
+) ->
     #{
         <<"status">> => <<"ClaimRevoked">>,
         <<"reason">> => Reason
@@ -3797,81 +3791,93 @@ decode_claim_status({'revoked', #payproc_ClaimRevoked{
 decode_party_changeset(PartyChangeset) ->
     lists:filtermap(fun decode_party_modification/1, PartyChangeset).
 
-decode_party_modification({
-    contract_modification,
-    #payproc_ContractModificationUnit{
-        id = ContractID,
-        modification = Modification
+decode_party_modification(
+    {
+        contract_modification,
+        #payproc_ContractModificationUnit{
+            id = ContractID,
+            modification = Modification
+        }
     }
-}) ->
-    {true, maps:merge(
-        #{
-            <<"partyModificationType">> => <<"ContractModification">>,
-            <<"contractID">> => ContractID
-        },
-        decode_contract_modification(Modification)
-    )};
-
-decode_party_modification({
-    shop_modification,
-    #payproc_ShopModificationUnit{
-        id = ShopID,
-        modification = ShopModification
+) ->
+    {true,
+        maps:merge(
+            #{
+                <<"partyModificationType">> => <<"ContractModification">>,
+                <<"contractID">> => ContractID
+            },
+            decode_contract_modification(Modification)
+        )};
+decode_party_modification(
+    {
+        shop_modification,
+        #payproc_ShopModificationUnit{
+            id = ShopID,
+            modification = ShopModification
+        }
     }
-}) ->
-    {true, maps:merge(
-        #{
-            <<"partyModificationType">> => <<"ShopModification">>,
-            <<"shopID">> => ShopID
-        },
-        decode_shop_modification(ShopModification)
-    )}.
+) ->
+    {true,
+        maps:merge(
+            #{
+                <<"partyModificationType">> => <<"ShopModification">>,
+                <<"shopID">> => ShopID
+            },
+            decode_shop_modification(ShopModification)
+        )}.
 
-decode_contract_modification({creation, #payproc_ContractParams{
-    contractor = Contractor,
-    payment_institution = PaymentInstitutionRef
-}}) ->
+decode_contract_modification(
+    {creation, #payproc_ContractParams{
+        contractor = Contractor,
+        payment_institution = PaymentInstitutionRef
+    }}
+) ->
     #{
         <<"contractModificationType">> => <<"ContractCreation">>,
         <<"contractor">> => decode_contractor(Contractor),
         <<"paymentInstitutionID">> => decode_payment_institution_ref(PaymentInstitutionRef)
     };
-
 decode_contract_modification({legal_agreement_binding, LegalAgreement}) ->
     #{
         <<"contractModificationType">> => <<"ContractLegalAgreementBinding">>,
         <<"legalAgreement">> => decode_legal_agreement(LegalAgreement)
     };
-
-decode_contract_modification({adjustment_modification, #payproc_ContractAdjustmentModificationUnit{
-    adjustment_id = AdjustmentID,
-    modification = {creation, #payproc_ContractAdjustmentParams{
-        % FIXME need swag support for this
-        template = _Template
+decode_contract_modification(
+    {adjustment_modification, #payproc_ContractAdjustmentModificationUnit{
+        adjustment_id = AdjustmentID,
+        modification =
+            {creation, #payproc_ContractAdjustmentParams{
+                % FIXME need swag support for this
+                template = _Template
+            }}
     }}
-}}) ->
+) ->
     #{
         <<"contractModificationType">> => <<"ContractAdjustmentCreation">>,
         <<"adjustmentID">> => AdjustmentID
     };
-
-decode_contract_modification({termination, #payproc_ContractTermination{
-    reason = Reason
-}}) ->
+decode_contract_modification(
+    {termination, #payproc_ContractTermination{
+        reason = Reason
+    }}
+) ->
     genlib_map:compact(#{
         <<"contractModificationType">> => <<"ContractTermination">>,
         <<"reason">> => Reason
     });
-
-decode_contract_modification({payout_tool_modification, #payproc_PayoutToolModificationUnit{
-    payout_tool_id = PayoutToolID,
-    modification = {creation, PayoutToolParams}
-}}) ->
-    maps:merge(#{
-        <<"contractModificationType">> => <<"ContractPayoutToolCreation">>,
-        <<"payoutToolID"            >> => PayoutToolID
-    }, decode_payout_tool_params(PayoutToolParams));
-
+decode_contract_modification(
+    {payout_tool_modification, #payproc_PayoutToolModificationUnit{
+        payout_tool_id = PayoutToolID,
+        modification = {creation, PayoutToolParams}
+    }}
+) ->
+    maps:merge(
+        #{
+            <<"contractModificationType">> => <<"ContractPayoutToolCreation">>,
+            <<"payoutToolID">> => PayoutToolID
+        },
+        decode_payout_tool_params(PayoutToolParams)
+    );
 decode_contract_modification({report_preferences_modification, ReportPreferences}) ->
     maps:merge(
         #{<<"contractModificationType">> => <<"ContractReportingPreferencesChange">>},
@@ -3886,7 +3892,7 @@ decode_legal_agreement(
     }
 ) ->
     genlib_map:compact(#{
-        <<"id"      >> => ID,
+        <<"id">> => ID,
         <<"signedAt">> => SignedAt,
         <<"validUntil">> => ValidUntil
     }).
@@ -3907,9 +3913,9 @@ decode_reporting_preferences(#domain_ReportPreferences{service_acceptance_act_pr
     #{}.
 
 decode_representative(#domain_Representative{
-    position  = Position,
+    position = Position,
     full_name = Name,
-    document  = Document
+    document = Document
 }) ->
     #{
         <<"position">> => Position,
@@ -3932,59 +3938,58 @@ decode_shop_modification({creation, ShopParams}) ->
         #{<<"shopModificationType">> => <<"ShopCreation">>},
         decode_shop_params(ShopParams)
     );
-
-decode_shop_modification({shop_account_creation, #payproc_ShopAccountParams{
-    currency = Currency
-}}) ->
+decode_shop_modification(
+    {shop_account_creation, #payproc_ShopAccountParams{
+        currency = Currency
+    }}
+) ->
     #{
         <<"shopModificationType">> => <<"ShopAccountCreation">>,
         <<"currency">> => decode_currency(Currency)
     };
-
 decode_shop_modification({category_modification, CategoryRef}) ->
     #{
         <<"shopModificationType">> => <<"ShopCategoryChange">>,
         <<"categoryID">> => decode_category_ref(CategoryRef)
     };
-
 decode_shop_modification({location_modification, Location}) ->
     #{
         <<"shopModificationType">> => <<"ShopLocationChange">>,
         <<"location">> => decode_shop_location(Location)
     };
-
 decode_shop_modification({details_modification, Details}) ->
     #{
         <<"shopModificationType">> => <<"ShopDetailsChange">>,
         <<"details">> => decode_shop_details(Details)
     };
-
-decode_shop_modification({contract_modification, #payproc_ShopContractModification{
-    contract_id = ContractID,
-    payout_tool_id = PayoutToolID
-}}) ->
+decode_shop_modification(
+    {contract_modification, #payproc_ShopContractModification{
+        contract_id = ContractID,
+        payout_tool_id = PayoutToolID
+    }}
+) ->
     #{
         <<"shopModificationType">> => <<"ShopContractBinding">>,
         <<"contractID">> => ContractID,
         <<"payoutToolID">> => PayoutToolID
     };
-
 decode_shop_modification({payout_tool_modification, PayoutToolID}) ->
     #{
         <<"shopModificationType">> => <<"ShopPayoutToolChange">>,
         <<"payoutToolID">> => PayoutToolID
     };
-
-decode_shop_modification({payout_schedule_modification, #payproc_ScheduleModification{
-    schedule = ScheduleRef
-}}) ->
+decode_shop_modification(
+    {payout_schedule_modification, #payproc_ScheduleModification{
+        schedule = ScheduleRef
+    }}
+) ->
     genlib_map:compact(#{
         <<"shopModificationType">> => <<"ShopPayoutScheduleChange">>,
-        <<"scheduleID"          >> => decode_business_schedule_ref(ScheduleRef)
+        <<"scheduleID">> => decode_business_schedule_ref(ScheduleRef)
     }).
 
 decode_shop_params(#payproc_ShopParams{
-    location =  Location,
+    location = Location,
     details = Details,
     contract_id = ContractID,
     payout_tool_id = PayoutToolID
@@ -4018,7 +4023,6 @@ decode_category_ref(#domain_CategoryRef{
 
 decode_shop_account(undefined) ->
     undefined;
-
 decode_shop_account(#domain_ShopAccount{
     currency = Currency,
     settlement = SettlementID,
@@ -4059,34 +4063,38 @@ decode_payment_terms(Fun, {value, Val}) when is_list(Val) ->
 decode_payment_terms(_, _) ->
     undefined.
 
-decode_user_interaction({payment_terminal_reciept, #'PaymentTerminalReceipt'{
-    short_payment_id = SPID,
-    due = DueDate
-}}) ->
+decode_user_interaction(
+    {payment_terminal_reciept, #'PaymentTerminalReceipt'{
+        short_payment_id = SPID,
+        due = DueDate
+    }}
+) ->
     #{
         <<"interactionType">> => <<"PaymentTerminalReceipt">>,
         <<"shortPaymentID">> => SPID,
         <<"dueDate">> => DueDate
     };
-
 decode_user_interaction({redirect, BrowserRequest}) ->
     #{
         <<"interactionType">> => <<"Redirect">>,
         <<"request">> => decode_browser_request(BrowserRequest)
     }.
 
-decode_browser_request({get_request, #'BrowserGetRequest'{
-    uri = UriTemplate
-}}) ->
+decode_browser_request(
+    {get_request, #'BrowserGetRequest'{
+        uri = UriTemplate
+    }}
+) ->
     #{
         <<"requestType">> => <<"BrowserGetRequest">>,
         <<"uriTemplate">> => UriTemplate
     };
-
-decode_browser_request({post_request, #'BrowserPostRequest'{
-    uri = UriTemplate,
-    form = UserInteractionForm
-}}) ->
+decode_browser_request(
+    {post_request, #'BrowserPostRequest'{
+        uri = UriTemplate,
+        form = UserInteractionForm
+    }}
+) ->
     #{
         <<"requestType">> => <<"BrowserPostRequest">>,
         <<"uriTemplate">> => UriTemplate,
@@ -4114,7 +4122,6 @@ decode_geo_location_info(#geo_ip_LocationInfo{
         <<"cityGeoID">> => CityID,
         <<"countryGeoID">> => CountryID
     };
-
 decode_geo_location_info(undefined) ->
     undefined.
 
@@ -4128,7 +4135,6 @@ decode_currency(#domain_Currency{
     symbolic_code = SymbolicCode
 }) ->
     SymbolicCode;
-
 decode_currency(#domain_CurrencyRef{
     symbolic_code = SymbolicCode
 }) ->
@@ -4177,12 +4183,15 @@ decode_report_file(#reports_FileMeta{
         <<"signatures">> => #{<<"md5">> => MD5, <<"sha256">> => SHA256}
     }.
 
-decode_customer_event(#payproc_Event{
-    id = EventID,
-    created_at = CreatedAt,
-    source =  {customer_id, _},
-    payload =  {customer_changes, CustomerChanges}
-}, _) ->
+decode_customer_event(
+    #payproc_Event{
+        id = EventID,
+        created_at = CreatedAt,
+        source = {customer_id, _},
+        payload = {customer_changes, CustomerChanges}
+    },
+    _
+) ->
     Changes = decode_customer_changes(CustomerChanges),
     case Changes of
         [_Something | _] ->
@@ -4201,34 +4210,48 @@ decode_customer_changes(CustomerChanges) when is_list(CustomerChanges) ->
         CustomerChanges
     ).
 
-decode_customer_change({customer_binding_changed, #payproc_CustomerBindingChanged{
-    id = BindingID,
-    payload = Payload
-}}) ->
+decode_customer_change(
+    {customer_binding_changed, #payproc_CustomerBindingChanged{
+        id = BindingID,
+        payload = Payload
+    }}
+) ->
     decode_customer_binding_change(BindingID, Payload);
 decode_customer_change(_) ->
     false.
 
-decode_customer_binding_change(_, {started, #payproc_CustomerBindingStarted{
-    binding = CustomerBinding
-}}) ->
+decode_customer_binding_change(
+    _,
+    {started, #payproc_CustomerBindingStarted{
+        binding = CustomerBinding
+    }}
+) ->
     {true, #{
         <<"changeType">> => <<"CustomerBindingStarted">>,
         <<"customerBinding">> => decode_customer_binding(CustomerBinding)
     }};
-decode_customer_binding_change(BindingID, {status_changed, #payproc_CustomerBindingStatusChanged{
-    status = Status
-}}) ->
-    {true, genlib_map:compact(maps:merge(
-        #{
-            <<"changeType">> => <<"CustomerBindingStatusChanged">>,
-            <<"customerBindingID">> => BindingID
-        },
-        decode_customer_binding_status(Status)
-    ))};
-decode_customer_binding_change(BindingID, {interaction_requested, #payproc_CustomerBindingInteractionRequested{
-    interaction = UserInteraction
-}}) ->
+decode_customer_binding_change(
+    BindingID,
+    {status_changed, #payproc_CustomerBindingStatusChanged{
+        status = Status
+    }}
+) ->
+    {true,
+        genlib_map:compact(
+            maps:merge(
+                #{
+                    <<"changeType">> => <<"CustomerBindingStatusChanged">>,
+                    <<"customerBindingID">> => BindingID
+                },
+                decode_customer_binding_status(Status)
+            )
+        )};
+decode_customer_binding_change(
+    BindingID,
+    {interaction_requested, #payproc_CustomerBindingInteractionRequested{
+        interaction = UserInteraction
+    }}
+) ->
     {true, #{
         <<"changeType">> => <<"CustomerBindingInteractionRequested">>,
         <<"customerBindingID">> => BindingID,
@@ -4261,13 +4284,15 @@ decode_customer_binding(#payproc_CustomerBinding{
     payment_resource = DisposablePaymentResource,
     status = Status
 }) ->
-    genlib_map:compact(maps:merge(
-        #{
-            <<"id">> => ID,
-            <<"paymentResource">> => decode_disposable_payment_resource(DisposablePaymentResource)
-        },
-        decode_customer_binding_status(Status)
-    )).
+    genlib_map:compact(
+        maps:merge(
+            #{
+                <<"id">> => ID,
+                <<"paymentResource">> => decode_disposable_payment_resource(DisposablePaymentResource)
+            },
+            decode_customer_binding_status(Status)
+        )
+    ).
 
 decode_disposable_payment_resource(#domain_DisposablePaymentResource{
     payment_tool = PaymentTool,
@@ -4283,12 +4308,13 @@ decode_disposable_payment_resource(#domain_DisposablePaymentResource{
     }.
 
 decode_customer_binding_status({Status, StatusInfo}) ->
-    Error = case StatusInfo of
-        #payproc_CustomerBindingFailed{failure = OperationFailure} ->
-            decode_operation_failure(OperationFailure);
-        _ ->
-            undefined
-    end,
+    Error =
+        case StatusInfo of
+            #payproc_CustomerBindingFailed{failure = OperationFailure} ->
+                decode_operation_failure(OperationFailure);
+            _ ->
+                undefined
+        end,
     #{
         <<"status">> => genlib:to_binary(Status),
         <<"error">> => Error
@@ -4322,8 +4348,8 @@ decode_business_schedules_selector(_) ->
 
 decode_business_schedule(#domain_BusinessScheduleObject{ref = Ref, data = Data}) ->
     genlib_map:compact(#{
-        <<"scheduleID" >> => Ref#domain_BusinessScheduleRef.id,
-        <<"name"       >> => Data#domain_BusinessSchedule.name,
+        <<"scheduleID">> => Ref#domain_BusinessScheduleRef.id,
+        <<"name">> => Data#domain_BusinessSchedule.name,
         <<"description">> => Data#domain_BusinessSchedule.description
     }).
 
@@ -4337,15 +4363,15 @@ decode_business_schedule_ref(#domain_BusinessScheduleRef{id = ID}) when ID /= un
 decode_business_schedule_ref(undefined) ->
     undefined.
 
--define(invpaid()      , {paid, #webhooker_InvoicePaid{}}).
--define(invcancelled() , {cancelled, #webhooker_InvoiceCancelled{}}).
--define(invfulfilled() , {fulfilled, #webhooker_InvoiceFulfilled{}}).
+-define(invpaid(), {paid, #webhooker_InvoicePaid{}}).
+-define(invcancelled(), {cancelled, #webhooker_InvoiceCancelled{}}).
+-define(invfulfilled(), {fulfilled, #webhooker_InvoiceFulfilled{}}).
 
--define(pmtprocessed() , {processed, #webhooker_InvoicePaymentProcessed{}}).
--define(pmtcaptured()  , {captured, #webhooker_InvoicePaymentCaptured{}}).
--define(pmtcancelled() , {cancelled, #webhooker_InvoicePaymentCancelled{}}).
--define(pmtrefunded()  , {refunded, #webhooker_InvoicePaymentRefunded{}}).
--define(pmtfailed()    , {failed, #webhooker_InvoicePaymentFailed{}}).
+-define(pmtprocessed(), {processed, #webhooker_InvoicePaymentProcessed{}}).
+-define(pmtcaptured(), {captured, #webhooker_InvoicePaymentCaptured{}}).
+-define(pmtcancelled(), {cancelled, #webhooker_InvoicePaymentCancelled{}}).
+-define(pmtrefunded(), {refunded, #webhooker_InvoicePaymentRefunded{}}).
+-define(pmtfailed(), {failed, #webhooker_InvoicePaymentFailed{}}).
 
 encode_invoice_event_type(<<"InvoiceCreated">>) ->
     {created, #webhooker_InvoiceCreated{}};
@@ -4375,36 +4401,35 @@ encode_customer_event_type(<<"CustomerDeleted">>) ->
 encode_customer_event_type(<<"CustomerReady">>) ->
     {ready, #webhooker_CustomerStatusReady{}};
 encode_customer_event_type(<<"CustomerBindingStarted">>) ->
-    {binding,
-        {started, #webhooker_CustomerBindingStarted{}}
-    };
+    {binding, {started, #webhooker_CustomerBindingStarted{}}};
 encode_customer_event_type(<<"CustomerBindingSucceeded">>) ->
-    {binding,
-        {succeeded, #webhooker_CustomerBindingSucceeded{}}
-    };
+    {binding, {succeeded, #webhooker_CustomerBindingSucceeded{}}};
 encode_customer_event_type(<<"CustomerBindingFailed">>) ->
-    {binding,
-        {failed, #webhooker_CustomerBindingFailed{}}
-    }.
+    {binding, {failed, #webhooker_CustomerBindingFailed{}}}.
 
-decode_event_filter({invoice, #webhooker_InvoiceEventFilter{
-    shop_id = ShopID,
-    types   = EventTypes
-}}) ->
+decode_event_filter(
+    {invoice, #webhooker_InvoiceEventFilter{
+        shop_id = ShopID,
+        types = EventTypes
+    }}
+) ->
     genlib_map:compact(#{
-        <<"topic">>      => <<"InvoicesTopic">>,
-        <<"shopID">>     => ShopID,
+        <<"topic">> => <<"InvoicesTopic">>,
+        <<"shopID">> => ShopID,
         <<"eventTypes">> => lists:flatmap(
-            fun (V) -> decode_invoice_event_type(V) end, ordsets:to_list(EventTypes)
+            fun(V) -> decode_invoice_event_type(V) end,
+            ordsets:to_list(EventTypes)
         )
     });
-decode_event_filter({customer, #webhooker_CustomerEventFilter{
-    shop_id = ShopID,
-    types   = EventTypes
-}}) ->
+decode_event_filter(
+    {customer, #webhooker_CustomerEventFilter{
+        shop_id = ShopID,
+        types = EventTypes
+    }}
+) ->
     genlib_map:compact(#{
-        <<"topic">>      => <<"CustomersTopic">>,
-        <<"shopID">>     => ShopID,
+        <<"topic">> => <<"CustomersTopic">>,
+        <<"shopID">> => ShopID,
         <<"eventTypes">> => lists:map(
             fun decode_customer_event_type/1,
             ordsets:to_list(EventTypes)
@@ -4419,11 +4444,14 @@ decode_invoice_event_type(
     {status_changed, #webhooker_InvoiceStatusChanged{value = undefined}}
 ) ->
     % TODO seems unmaintainable
-    [decode_invoice_status_event_type(V) || V <- [
-        ?invpaid(),
-        ?invcancelled(),
-        ?invfulfilled()
-    ]];
+    [
+        decode_invoice_status_event_type(V)
+        || V <- [
+               ?invpaid(),
+               ?invcancelled(),
+               ?invfulfilled()
+           ]
+    ];
 decode_invoice_event_type(
     {status_changed, #webhooker_InvoiceStatusChanged{value = Value}}
 ) ->
@@ -4436,27 +4464,30 @@ decode_invoice_event_type(
     {payment, {status_changed, #webhooker_InvoicePaymentStatusChanged{value = undefined}}}
 ) ->
     % TODO seems unmaintainable
-    [decode_payment_status_event_type(V) || V <- [
-        ?pmtprocessed(),
-        ?pmtcaptured(),
-        ?pmtcancelled(),
-        ?pmtrefunded(),
-        ?pmtfailed()
-    ]];
+    [
+        decode_payment_status_event_type(V)
+        || V <- [
+               ?pmtprocessed(),
+               ?pmtcaptured(),
+               ?pmtcancelled(),
+               ?pmtrefunded(),
+               ?pmtfailed()
+           ]
+    ];
 decode_invoice_event_type(
     {payment, {status_changed, #webhooker_InvoicePaymentStatusChanged{value = Value}}}
 ) ->
     [decode_payment_status_event_type(Value)].
 
-decode_invoice_status_event_type(?invpaid())      -> <<"InvoicePaid">>;
+decode_invoice_status_event_type(?invpaid()) -> <<"InvoicePaid">>;
 decode_invoice_status_event_type(?invcancelled()) -> <<"InvoiceCancelled">>;
 decode_invoice_status_event_type(?invfulfilled()) -> <<"InvoiceFulfilled">>.
 
 decode_payment_status_event_type(?pmtprocessed()) -> <<"PaymentProcessed">>;
-decode_payment_status_event_type(?pmtcaptured())  -> <<"PaymentCaptured">>;
+decode_payment_status_event_type(?pmtcaptured()) -> <<"PaymentCaptured">>;
 decode_payment_status_event_type(?pmtcancelled()) -> <<"PaymentCancelled">>;
-decode_payment_status_event_type(?pmtrefunded())  -> <<"PaymentRefunded">>;
-decode_payment_status_event_type(?pmtfailed())    -> <<"PaymentFailed">>.
+decode_payment_status_event_type(?pmtrefunded()) -> <<"PaymentRefunded">>;
+decode_payment_status_event_type(?pmtfailed()) -> <<"PaymentFailed">>.
 
 decode_customer_event_type({created, #webhooker_CustomerCreated{}}) ->
     <<"CustomerCreated">>;
@@ -4472,25 +4503,24 @@ decode_customer_event_type({binding, {failed, #webhooker_CustomerBindingFailed{}
     <<"CustomerBindingFailed">>.
 
 decode_webhook(#webhooker_Webhook{
-    id           = ID,
-    party_id     = _PartyID,
+    id = ID,
+    party_id = _PartyID,
     event_filter = EventFilter,
-    url          = URL,
-    pub_key      = PubKey,
-    enabled      = Enabled
+    url = URL,
+    pub_key = PubKey,
+    enabled = Enabled
 }) ->
     {ok, WebhookID} = decode_webhook_id(ID),
     #{
-        <<"id">>        => WebhookID,
-        <<"active">>    => Enabled,
-        <<"scope">>     => decode_event_filter(EventFilter),
-        <<"url">>       => URL,
+        <<"id">> => WebhookID,
+        <<"active">> => Enabled,
+        <<"scope">> => decode_event_filter(EventFilter),
+        <<"url">> => URL,
         <<"publicKey">> => PubKey
     }.
 
 encode_stat_request(Dsl) when is_map(Dsl) ->
     encode_stat_request(jsx:encode(Dsl));
-
 encode_stat_request(Dsl) when is_binary(Dsl) ->
     #merchstat_StatRequest{
         dsl = Dsl
@@ -4498,15 +4528,16 @@ encode_stat_request(Dsl) when is_binary(Dsl) ->
 
 create_stat_dsl(StatType, Req, Context) ->
     FromTime = get_time('fromTime', Req),
-    ToTime  = get_time('toTime', Req),
-    SplitInterval = case StatType of
-        customers_rate_stat ->
-            get_time_diff(FromTime, ToTime);
-        _ ->
-            SplitUnit = genlib_map:get('splitUnit', Req),
-            SplitSize = genlib_map:get('splitSize', Req),
-            get_split_interval(SplitSize, SplitUnit)
-    end,
+    ToTime = get_time('toTime', Req),
+    SplitInterval =
+        case StatType of
+            customers_rate_stat ->
+                get_time_diff(FromTime, ToTime);
+            _ ->
+                SplitUnit = genlib_map:get('splitUnit', Req),
+                SplitSize = genlib_map:get('splitSize', Req),
+                get_split_interval(SplitSize, SplitUnit)
+        end,
 
     Query = #{
         <<"merchant_id">> => get_party_id(Context),
@@ -4532,16 +4563,16 @@ process_merchant_stat_result(
     customers_rate_stat = StatType,
     {ok, #merchstat_StatResponse{data = {records, Stats}}}
 ) ->
-    Resp = case Stats of
-        [] ->
-            #{
-                <<"uniqueCount">> => 0
-            };
-        [StatResponse] ->
-            decode_stat_info(StatType, StatResponse)
-    end,
+    Resp =
+        case Stats of
+            [] ->
+                #{
+                    <<"uniqueCount">> => 0
+                };
+            [StatResponse] ->
+                decode_stat_info(StatType, StatResponse)
+        end,
     {ok, {200, #{}, Resp}};
-
 process_merchant_stat_result(StatType, Result) ->
     case Result of
         {ok, #merchstat_StatResponse{data = {'records', Stats}}} ->
@@ -4594,19 +4625,14 @@ get_time(Key, Req) ->
 
 get_split_interval(SplitSize, minute) ->
     SplitSize * 60;
-
 get_split_interval(SplitSize, hour) ->
     SplitSize * 60 * 60;
-
 get_split_interval(SplitSize, day) ->
     SplitSize * 60 * 60 * 24;
-
 get_split_interval(SplitSize, week) ->
     SplitSize * 60 * 60 * 24 * 7;
-
 get_split_interval(SplitSize, month) ->
     SplitSize * 60 * 60 * 24 * 30;
-
 get_split_interval(SplitSize, year) ->
     SplitSize * 60 * 60 * 24 * 365.
 
@@ -4617,7 +4643,6 @@ get_time_diff(From, To) ->
 
 format_request_errors([]) ->
     <<>>;
-
 format_request_errors(Errors) ->
     genlib_string:join(<<"\n">>, Errors).
 
@@ -4685,7 +4710,7 @@ get_invoice_tpl(InvoiceTplID, UserInfo, ReqCtx, Context) ->
     Result = prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID)
         end
     ),
@@ -4716,7 +4741,7 @@ get_my_party(Context, ReqCtx, UserInfo, PartyID) ->
     prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'Get',
@@ -4738,7 +4763,7 @@ get_contract_by_id(Context, ReqCtx, UserInfo, PartyID, ContractID) ->
     prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'GetContract',
@@ -4761,7 +4786,6 @@ collect_events(Limit, After, GetterFun, DecodeFun, DecodingContext) ->
 
 collect_events(Collected, 0, _, _, _, _) ->
     {ok, Collected};
-
 collect_events(Collected0, Left, After, GetterFun, DecodeFun, DecodingContext) when Left > 0 ->
     case get_events(Left, After, GetterFun) of
         {ok, Events} ->
@@ -4787,9 +4811,9 @@ collect_events(Collected0, Left, After, GetterFun, DecodeFun, DecodingContext) w
 decode_and_filter_events(DecodeFun, DecodingContext, Events) ->
     lists:foldr(
         fun(Event, Acc) ->
-             case DecodeFun(Event, DecodingContext) of
+            case DecodeFun(Event, DecodingContext) of
                 {true, Ev} ->
-                    [Ev|Acc];
+                    [Ev | Acc];
                 false ->
                     Acc
             end
@@ -4856,22 +4880,27 @@ decode_payment_method(tokenized_bank_card_deprecated, TokenizedBankCards) ->
 decode_payment_method(bank_card, Cards) ->
     {Regular, Tokenized} =
         lists:partition(fun(#domain_BankCardPaymentMethod{token_provider = TP}) -> TP =:= undefined end, Cards),
-    [#{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun decode_bank_card_pm/1, Regular)}
-        | decode_tokenized_bank_cards(Tokenized)].
+    [
+        #{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun decode_bank_card_pm/1, Regular)}
+        | decode_tokenized_bank_cards(Tokenized)
+    ].
 
 decode_bank_card_pm(#domain_BankCardPaymentMethod{payment_system = PS}) -> genlib:to_binary(PS).
 
-decode_tokenized_bank_cards([#domain_BankCardPaymentMethod{} | _ ] = TokenizedBankCards) ->
+decode_tokenized_bank_cards([#domain_BankCardPaymentMethod{} | _] = TokenizedBankCards) ->
     PropTokenizedBankCards = [
-        {TP, PS} || #domain_BankCardPaymentMethod{payment_system = PS, token_provider = TP} <- TokenizedBankCards
+        {TP, PS}
+        || #domain_BankCardPaymentMethod{payment_system = PS, token_provider = TP} <- TokenizedBankCards
     ],
     do_decode_tokenized_bank_cards(PropTokenizedBankCards);
-
-decode_tokenized_bank_cards([#domain_TokenizedBankCard{} | _ ] = TokenizedBankCards) ->
+decode_tokenized_bank_cards([#domain_TokenizedBankCard{} | _] = TokenizedBankCards) ->
     PropTokenizedBankCards = [
-        {TP, PS} || #domain_TokenizedBankCard{payment_system = PS, token_provider = TP} <- TokenizedBankCards
+        {TP, PS}
+        || #domain_TokenizedBankCard{payment_system = PS, token_provider = TP} <- TokenizedBankCards
     ],
-    do_decode_tokenized_bank_cards(PropTokenizedBankCards).
+    do_decode_tokenized_bank_cards(PropTokenizedBankCards);
+decode_tokenized_bank_cards([]) ->
+    [].
 
 do_decode_tokenized_bank_cards(PropTokenizedBankCards) ->
     lists:map(
@@ -4882,8 +4911,8 @@ do_decode_tokenized_bank_cards(PropTokenizedBankCards) ->
         proplists:get_keys(PropTokenizedBankCards)
     ).
 
- decode_tokenized_bank_card(TokenProvider, PaymentSystems) ->
-   #{
+decode_tokenized_bank_card(TokenProvider, PaymentSystems) ->
+    #{
         <<"method">> => <<"BankCard">>,
         <<"paymentSystems">> => lists:map(fun genlib:to_binary/1, PaymentSystems),
         <<"tokenProviders">> => [genlib:to_binary(TokenProvider)]
@@ -4901,14 +4930,12 @@ reply_5xx(Code) when Code >= 500 andalso Code < 600 ->
     {Code, #{}, <<>>}.
 
 -spec convert_crypto_currency_from_swag(binary()) -> atom().
-
 convert_crypto_currency_from_swag(<<"bitcoinCash">>) ->
     bitcoin_cash;
 convert_crypto_currency_from_swag(CryptoCurrency) when is_binary(CryptoCurrency) ->
     binary_to_existing_atom(CryptoCurrency, utf8).
 
 -spec convert_crypto_currency_to_swag(atom()) -> binary().
-
 convert_crypto_currency_to_swag(bitcoin_cash) ->
     <<"bitcoinCash">>;
 convert_crypto_currency_to_swag(CryptoCurrency) when is_atom(CryptoCurrency) ->
@@ -4924,11 +4951,13 @@ unwrap_payment_session(Encoded) ->
     #{
         <<"clientInfo">> := ClientInfo,
         <<"paymentSession">> := PaymentSession
-     } = try capi_utils:base64url_to_map(Encoded)
-    catch
-        error:badarg ->
-            erlang:throw(invalid_payment_session)
-    end,
+    } =
+        try
+            capi_utils:base64url_to_map(Encoded)
+        catch
+            error:badarg ->
+                erlang:throw(invalid_payment_session)
+        end,
     {ClientInfo, PaymentSession}.
 
 get_default_url_lifetime() ->
@@ -4942,7 +4971,7 @@ compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) ->
     prepare_party(
         Context,
         ReqCtx,
-        fun () ->
+        fun() ->
             service_call(
                 party_management,
                 'ComputePaymentInstitutionTerms',

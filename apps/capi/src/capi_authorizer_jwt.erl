@@ -17,18 +17,18 @@
 -include_lib("jose/include/jose_jwk.hrl").
 -include_lib("jose/include/jose_jwt.hrl").
 
--type keyname()    :: term().
--type kid()        :: binary().
--type key()        :: #jose_jwk{}.
--type token()      :: binary().
--type claims()     :: #{binary() => term()}.
--type subject()    :: {subject_id(), capi_acl:t()}.
+-type keyname() :: term().
+-type kid() :: binary().
+-type key() :: #jose_jwk{}.
+-type token() :: binary().
+-type claims() :: #{binary() => term()}.
+-type subject() :: {subject_id(), capi_acl:t()}.
 -type subject_id() :: binary().
--type t()          :: {subject(), claims()}.
--type expiration()        ::
-    {lifetime, Seconds :: pos_integer()} |
-    {deadline, UnixTs :: pos_integer()}  |
-    unlimited.
+-type t() :: {subject(), claims()}.
+-type expiration() ::
+    {lifetime, Seconds :: pos_integer()}
+    | {deadline, UnixTs :: pos_integer()}
+    | unlimited.
 
 -export_type([t/0]).
 -export_type([subject/0]).
@@ -54,9 +54,7 @@
 -type keysource() ::
     {pem_file, file:filename()}.
 
--spec get_child_spec(options()) ->
-    supervisor:child_spec() | no_return().
-
+-spec get_child_spec(options()) -> supervisor:child_spec() | no_return().
 get_child_spec(Options) ->
     #{
         id => ?MODULE,
@@ -68,7 +66,7 @@ parse_options(Options) ->
     Keyset = maps:get(keyset, Options, #{}),
     _ = is_map(Keyset) orelse exit({invalid_option, keyset, Keyset}),
     _ = genlib_map:foreach(
-        fun (K, V) ->
+        fun(K, V) ->
             is_keysource(V) orelse exit({invalid_option, K, V})
         end,
         Keyset
@@ -83,9 +81,7 @@ is_keysource(_) ->
 
 %%
 
--spec init({keyset(), {ok, keyname()} | error}) ->
-    {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
-
+-spec init({keyset(), {ok, keyname()} | error}) -> {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
 init({Keyset, Signee}) ->
     ok = create_table(),
     KeyInfos = maps:map(fun ensure_store_key/2, Keyset),
@@ -118,14 +114,12 @@ select_signee(error, _KeyInfos) ->
 %%
 
 -type keyinfo() :: #{
-    kid    => kid(),
-    sign   => boolean(),
+    kid => kid(),
+    sign => boolean(),
     verify => boolean()
 }.
 
--spec store_key(keyname(), {pem_file, file:filename()}) ->
-    {ok, keyinfo()} | {error, file:posix() | {unknown_key, _}}.
-
+-spec store_key(keyname(), {pem_file, file:filename()}) -> {ok, keyinfo()} | {error, file:posix() | {unknown_key, _}}.
 store_key(Keyname, {pem_file, Filename}) ->
     store_key(Keyname, {pem_file, Filename}, #{
         kid => fun derive_kid_from_public_key_pem_entry/1
@@ -138,12 +132,11 @@ derive_kid_from_public_key_pem_entry(JWK) ->
     base64url:encode(crypto:hash(sha256, Data)).
 
 -type store_opts() :: #{
-    kid => fun ((key()) -> kid())
+    kid => fun((key()) -> kid())
 }.
 
 -spec store_key(keyname(), {pem_file, file:filename()}, store_opts()) ->
     {ok, keyinfo()} | {error, file:posix() | {unknown_key, _}}.
-
 store_key(Keyname, {pem_file, Filename}, Opts) ->
     case jose_jwk:from_pem_file(Filename) of
         JWK = #jose_jwk{} ->
@@ -156,8 +149,8 @@ store_key(Keyname, {pem_file, Filename}, Opts) ->
 
 get_key_info(#{kid := KID, signer := Signer, verifier := Verifier}) ->
     #{
-        kid    => KID,
-        sign   => Signer /= undefined,
+        kid => KID,
+        sign => Signer /= undefined,
         verify => Verifier /= undefined
     }.
 
@@ -166,20 +159,27 @@ derive_kid(JWK, #{kid := DeriveFun}) when is_function(DeriveFun, 1) ->
 
 construct_key(KID, JWK) ->
     #{
-        jwk      => JWK,
-        kid      => KID,
-        signer   => try jose_jwk:signer(JWK)   catch error:_ -> undefined end,
-        verifier => try jose_jwk:verifier(JWK) catch error:_ -> undefined end
+        jwk => JWK,
+        kid => KID,
+        signer =>
+            try
+                jose_jwk:signer(JWK)
+            catch
+                error:_ -> undefined
+            end,
+        verifier =>
+            try
+                jose_jwk:verifier(JWK)
+            catch
+                error:_ -> undefined
+            end
     }.
 
 %%
 
 -spec issue(t(), expiration()) ->
-    {ok, token()} |
-    {error,
-        nonexistent_signee
-    }.
-
+    {ok, token()}
+    | {error, nonexistent_signee}.
 issue(Auth, Expiration) ->
     case get_signee_key() of
         Key = #{} ->
@@ -218,20 +218,17 @@ sign(#{kid := KID, jwk := JWK, signer := #{} = JWS}, Claims) ->
 %%
 
 -spec verify(token()) ->
-    {ok, t()} |
-    {error,
+    {ok, t()}
+    | {error,
         {invalid_token,
-            badarg |
-            {badarg, term()} |
-            {missing, atom()} |
-            expired |
-            {malformed_acl, term()}
-        } |
-        {nonexistent_key, kid()} |
-        invalid_operation |
-        invalid_signature
-    }.
-
+            badarg
+            | {badarg, term()}
+            | {missing, atom()}
+            | expired
+            | {malformed_acl, term()}}
+        | {nonexistent_key, kid()}
+        | invalid_operation
+        | invalid_signature}.
 verify(Token) ->
     try
         {_, ExpandedToken} = jose_jws:expand(Token),
@@ -303,9 +300,9 @@ get_alg(#{}) ->
 
 get_validators() ->
     [
-        {token_id   , <<"jti">> , fun check_presence/2},
-        {subject_id , <<"sub">> , fun check_presence/2},
-        {expires_at , <<"exp">> , fun check_expiration/2}
+        {token_id, <<"jti">>, fun check_presence/2},
+        {subject_id, <<"sub">>, fun check_presence/2},
+        {expires_at, <<"exp">>, fun check_expiration/2}
     ].
 
 check_presence(_, V) when is_binary(V) ->
@@ -341,13 +338,15 @@ encode_roles(Roles) ->
         }
     }.
 
-decode_roles(Claims = #{
-    <<"resource_access">> := #{
-        <<"common-api">> := #{
-            <<"roles">> := Roles
+decode_roles(
+    Claims = #{
+        <<"resource_access">> := #{
+            <<"common-api">> := #{
+                <<"roles">> := Roles
+            }
         }
     }
-}) when is_list(Roles) ->
+) when is_list(Roles) ->
     {Roles, maps:remove(<<"resource_access">>, Claims)};
 decode_roles(_) ->
     throw({invalid_token, {missing, acl}}).
@@ -357,7 +356,7 @@ decode_roles(_) ->
 insert_key(Keyname, Key = #{kid := KID}) ->
     insert_values(#{
         {keyname, Keyname} => Key,
-        {kid, KID}         => Key
+        {kid, KID} => Key
     }).
 
 get_key_by_name(Keyname) ->
