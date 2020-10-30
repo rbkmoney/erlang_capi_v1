@@ -1,5 +1,14 @@
 -module(capi_utils).
 
+-type deadline() :: woody:deadline().
+
+-export_type([deadline/0]).
+
+-export([deadline_to_binary/1]).
+-export([deadline_from_binary/1]).
+-export([deadline_from_timeout/1]).
+-export([deadline_is_reached/1]).
+
 -export([logtag_process/2]).
 -export([base64url_to_map/1]).
 -export([map_to_base64url/1]).
@@ -10,6 +19,26 @@
 
 -export([unwrap/1]).
 -export([define/2]).
+
+-spec deadline_to_binary(deadline()) -> binary() | undefined.
+deadline_to_binary(undefined) ->
+    undefined;
+deadline_to_binary(Deadline) ->
+    woody_deadline:to_binary(Deadline).
+
+-spec deadline_from_binary(binary()) -> deadline() | undefined.
+deadline_from_binary(undefined) ->
+    undefined;
+deadline_from_binary(Binary) ->
+    woody_deadline:from_binary(Binary).
+
+-spec deadline_from_timeout(timeout()) -> deadline().
+deadline_from_timeout(Timeout) ->
+    woody_deadline:from_timeout(Timeout).
+
+-spec deadline_is_reached(deadline()) -> boolean().
+deadline_is_reached(Deadline) ->
+    woody_deadline:is_reached(Deadline).
 
 -spec logtag_process(atom(), any()) -> ok.
 logtag_process(Key, Value) when is_atom(Key) ->

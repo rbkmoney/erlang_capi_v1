@@ -1,6 +1,7 @@
 -module(capi_tests_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("capi_dummy_data.hrl").
 
@@ -60,6 +61,7 @@
     get_account_by_id_ok_test/1,
 
     create_payment_ok_test/1,
+    create_payment_expired_test/1,
     create_payment_with_encrypt_token_ok_test/1,
     get_payments_ok_test/1,
     get_payment_by_id_ok_test/1,
@@ -129,11 +131,15 @@
     get_customer_ok_test/1,
     create_customer_access_token_ok_test/1,
     create_binding_ok_test/1,
+    create_binding_expired_test/1,
     get_bindings_ok_test/1,
     get_binding_ok_test/1,
     get_customer_events_ok_test/1,
     delete_customer_ok_test/1,
-    authorization_blacklisted_token_error_test/1
+    authorization_blacklisted_token_error_test/1,
+
+    check_support_decrypt_v1_test/1,
+    check_support_decrypt_v2_test/1
 ]).
 
 -define(CAPI_IP, "::").
@@ -163,7 +169,8 @@ all() ->
         {group, operations_by_invoice_template_access_token},
         {group, operations_by_customer_access_token_after_customer_creation},
         {group, operations_by_customer_access_token_after_token_creation},
-        {group, authorization}
+        {group, authorization},
+        {group, payment_tool_token_support}
     ].
 
 invoice_access_token_tests() ->
@@ -172,6 +179,7 @@ invoice_access_token_tests() ->
         get_invoice_events_ok_test,
         get_invoice_payment_methods_ok_test,
         create_payment_ok_test,
+        create_payment_expired_test,
         create_payment_with_encrypt_token_ok_test,
         get_payments_ok_test,
         get_payment_by_id_ok_test,
@@ -184,6 +192,7 @@ customer_access_token_tests() ->
     [
         get_customer_ok_test,
         create_binding_ok_test,
+        create_binding_expired_test,
         get_bindings_ok_test,
         get_binding_ok_test,
         get_customer_events_ok_test
@@ -281,6 +290,10 @@ groups() ->
             authorization_error_no_permission_test,
             authorization_bad_token_error_test,
             authorization_blacklisted_token_error_test
+        ]},
+        {payment_tool_token_support, [], [
+            check_support_decrypt_v1_test,
+            check_support_decrypt_v2_test
         ]}
     ].
 
@@ -724,6 +737,28 @@ create_payment_ok_test(Config) ->
     },
     {ok, _} = capi_client_payments:create_payment(?config(context, Config), Req2, ?STRING).
 
+-spec create_payment_expired_test(config()) -> _.
+create_payment_expired_test(Config) ->
+    PaymentTool = {bank_card, ?BANK_CARD},
+    ValidUntil = capi_utils:deadline_from_timeout(0),
+    PaymentToolToken = capi_crypto:create_encrypted_payment_tool_token(PaymentTool, ValidUntil),
+    Req = #{
+        <<"externalID">> => <<"merch_id">>,
+        <<"flow">> => #{<<"type">> => <<"PaymentFlowInstant">>},
+        <<"payer">> => #{
+            <<"payerType">> => <<"PaymentResourcePayer">>,
+            <<"paymentSession">> => ?TEST_PAYMENT_SESSION,
+            <<"paymentToolToken">> => PaymentToolToken,
+            <<"contactInfo">> => #{
+                <<"email">> => <<"bla@bla.ru">>
+            }
+        },
+        <<"metadata">> => ?JSON,
+        <<"processingDeadline">> => <<"5m">>
+    },
+    Resp = capi_client_payments:create_payment(?config(context, Config), Req, ?STRING),
+    {error, {400, #{<<"code">> := <<"invalidPaymentToolToken">>}}} = Resp.
+
 -spec create_payment_with_encrypt_token_ok_test(config()) -> _.
 create_payment_with_encrypt_token_ok_test(Config) ->
     Tid = capi_ct_helper_bender:create_storage(),
@@ -773,7 +808,7 @@ get_encrypted_token() ->
             last_digits = <<"1111">>,
             cardholder_name = <<"Degus Degusovich">>
         }},
-    capi_crypto:create_encrypted_payment_tool_token(PaymentTool).
+    capi_crypto:create_encrypted_payment_tool_token(PaymentTool, undefined).
 
 -spec get_payments_ok_test(config()) -> _.
 get_payments_ok_test(Config) ->
@@ -1383,6 +1418,20 @@ create_binding_ok_test(Config) ->
     },
     {ok, _} = capi_client_customers:create_binding(?config(context, Config), ?STRING, Req2).
 
+-spec create_binding_expired_test(config()) -> _.
+create_binding_expired_test(Config) ->
+    PaymentTool = {bank_card, ?BANK_CARD},
+    ValidUntil = capi_utils:deadline_from_timeout(0),
+    PaymentToolToken = capi_crypto:create_encrypted_payment_tool_token(PaymentTool, ValidUntil),
+    Req = #{
+        <<"paymentResource">> => #{
+            <<"paymentSession">> => ?TEST_PAYMENT_SESSION,
+            <<"paymentToolToken">> => PaymentToolToken
+        }
+    },
+    Resp = capi_client_customers:create_binding(?config(context, Config), ?STRING, Req),
+    {error, {400, #{<<"code">> := <<"invalidPaymentToolToken">>}}} = Resp.
+
 -spec get_bindings_ok_test(config()) -> _.
 get_bindings_ok_test(Config) ->
     mock_services([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], Config),
@@ -1402,6 +1451,50 @@ get_customer_events_ok_test(Config) ->
 delete_customer_ok_test(Config) ->
     mock_services([{customer_management, fun('Delete', _) -> {ok, ok} end}], Config),
     {ok, _} = capi_client_customers:delete_customer(?config(context, Config), ?STRING).
+
+-spec check_support_decrypt_v1_test(config()) -> _.
+check_support_decrypt_v1_test(_Config) ->
+    PaymentToolToken = <<
+        "v1.eyJhbGciOiJFQ0RILUVTIiwiZW5jIjoiQTEyOEdDTSIsImVwayI6eyJhbGciOiJFQ0RILUVTIiwiY3J2IjoiUC0yNTYiLCJrdHkiOi"
+        "JFQyIsInVzZSI6ImVuYyIsIngiOiJaN0xCNXprLUtIaUd2OV9PS2lYLUZ6d1M3bE5Ob25iQm8zWlJnaWkxNEFBIiwieSI6IlFTdWVSb2I"
+        "tSjhJV1pjTmptRWxFMWlBckt4d1lHeFg5a01FMloxSXJKNVUifSwia2lkIjoia3hkRDBvclZQR29BeFdycUFNVGVRMFU1TVJvSzQ3dVp4"
+        "V2lTSmRnbzB0MCJ9..Zf3WXHtg0cg_Pg2J.wi8sq9RWZ-SO27G1sRrHAsJUALdLGniGGXNOtIGtLyppW_NYF3TSPJ-ehYzy.vRLMAbWtd"
+        "uC6jBO6F7-t_A"
+    >>,
+    {ok, {PaymentTool, ValidUntil}} = capi_crypto:decrypt_payment_tool_token(PaymentToolToken),
+    ?assertEqual(
+        {mobile_commerce, #domain_MobileCommerce{
+            phone = #domain_MobilePhone{
+                cc = <<"7">>,
+                ctn = <<"9210001122">>
+            },
+            operator = megafone
+        }},
+        PaymentTool
+    ),
+    ?assertEqual(undefined, ValidUntil).
+
+-spec check_support_decrypt_v2_test(config()) -> _.
+check_support_decrypt_v2_test(_Config) ->
+    PaymentToolToken = <<
+        "v2.eyJhbGciOiJFQ0RILUVTIiwiZW5jIjoiQTEyOEdDTSIsImVwayI6eyJhbGciOiJFQ0RILUVTIiwiY3J2IjoiUC0yNTYiLCJrdHkiOi"
+        "JFQyIsInVzZSI6ImVuYyIsIngiOiJRanFmNFVrOTJGNzd3WXlEUjNqY3NwR2dpYnJfdVRmSXpMUVplNzVQb1R3IiwieSI6InA5cjJGV3F"
+        "mU2xBTFJXYWhUSk8xY3VneVZJUXVvdzRwMGdHNzFKMFJkUVEifSwia2lkIjoia3hkRDBvclZQR29BeFdycUFNVGVRMFU1TVJvSzQ3dVp4"
+        "V2lTSmRnbzB0MCJ9..j3zEyCqyfQjpEtQM.JAc3kqJm6zbn0fMZGlK_t14Yt4PvgOuoVL2DtkEgIXIqrxxWFbykKBGxQvwYisJYIUJJwt"
+        "YbwvuGEODcK2uTC2quPD2Ejew66DLJF2xcAwE.MNVimzi8r-5uTATNalgoBQ"
+    >>,
+    {ok, {PaymentTool, ValidUntil}} = capi_crypto:decrypt_payment_tool_token(PaymentToolToken),
+    ?assertEqual(
+        {mobile_commerce, #domain_MobileCommerce{
+            phone = #domain_MobilePhone{
+                cc = <<"7">>,
+                ctn = <<"9210001122">>
+            },
+            operator = megafone
+        }},
+        PaymentTool
+    ),
+    ?assertEqual(<<"2020-10-29T23:44:15.499Z">>, capi_utils:deadline_to_binary(ValidUntil)).
 
 %%
 

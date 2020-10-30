@@ -1900,16 +1900,7 @@ encode_payer_params(#{
     <<"paymentSession">> := EncodedSession,
     <<"contactInfo">> := ContactInfo
 }) ->
-    PaymentTool =
-        case capi_crypto:decrypt_payment_tool_token(Token) of
-            unrecognized ->
-                encode_legacy_payment_tool_token(Token);
-            {ok, Result} ->
-                Result;
-            {error, {decryption_failed, _} = Error} ->
-                logger:warning("Payment tool token decryption failed: ~p", [Error]),
-                erlang:throw(invalid_token)
-        end,
+    PaymentTool = encode_payment_tool_token(Token),
     {ClientInfo, PaymentSession} = unwrap_payment_session(EncodedSession),
     {payment_resource, #payproc_PaymentResourcePayerParams{
         resource = #domain_DisposablePaymentResource{
@@ -1919,21 +1910,6 @@ encode_payer_params(#{
         },
         contact_info = encode_contact_info(ContactInfo)
     }}.
-
-encode_legacy_payment_tool_token(Token) ->
-    try capi_utils:base64url_to_map(Token) of
-        #{<<"type">> := <<"bank_card">>} = Encoded ->
-            encode_bank_card(Encoded);
-        #{<<"type">> := <<"payment_terminal">>} = Encoded ->
-            encode_payment_terminal(Encoded);
-        #{<<"type">> := <<"digital_wallet">>} = Encoded ->
-            encode_digital_wallet(Encoded);
-        #{<<"type">> := <<"crypto_wallet">>} = Encoded ->
-            encode_crypto_wallet(Encoded)
-    catch
-        error:badarg ->
-            erlang:throw(invalid_token)
-    end.
 
 decode_bank_card(#domain_BankCard{
     'token' = Token,
@@ -2500,16 +2476,7 @@ encode_customer_binding_params(#{
         <<"paymentSession">> := EncodedSession
     }
 }) ->
-    PaymentTool =
-        case capi_crypto:decrypt_payment_tool_token(Token) of
-            unrecognized ->
-                encode_legacy_payment_tool_token(Token);
-            {ok, Result} ->
-                Result;
-            {error, {decryption_failed, _} = Error} ->
-                logger:warning("Payment tool token decryption failed: ~p", [Error]),
-                erlang:throw(invalid_token)
-        end,
+    PaymentTool = encode_payment_tool_token(Token),
     {ClientInfo, PaymentSession} = unwrap_payment_session(EncodedSession),
     #payproc_CustomerBindingParams{
         payment_resource = #domain_DisposablePaymentResource{
@@ -2518,6 +2485,38 @@ encode_customer_binding_params(#{
             client_info = encode_client_info(ClientInfo)
         }
     }.
+
+encode_payment_tool_token(Token) ->
+    case capi_crypto:decrypt_payment_tool_token(Token) of
+        {ok, {PaymentTool, ValidUntil}} ->
+            case capi_utils:deadline_is_reached(ValidUntil) of
+                true ->
+                    logger:warning("Payment tool token expired: ~p", [capi_utils:deadline_to_binary(ValidUntil)]),
+                    erlang:throw(invalid_token);
+                _ ->
+                    PaymentTool
+            end;
+        unrecognized ->
+            encode_legacy_payment_tool_token(Token);
+        {error, {decryption_failed, _} = Error} ->
+            logger:warning("Payment tool token decryption failed: ~p", [Error]),
+            erlang:throw(invalid_token)
+    end.
+
+encode_legacy_payment_tool_token(Token) ->
+    try capi_utils:base64url_to_map(Token) of
+        #{<<"type">> := <<"bank_card">>} = Encoded ->
+            encode_bank_card(Encoded);
+        #{<<"type">> := <<"payment_terminal">>} = Encoded ->
+            encode_payment_terminal(Encoded);
+        #{<<"type">> := <<"digital_wallet">>} = Encoded ->
+            encode_digital_wallet(Encoded);
+        #{<<"type">> := <<"crypto_wallet">>} = Encoded ->
+            encode_crypto_wallet(Encoded)
+    catch
+        error:badarg ->
+            erlang:throw(invalid_token)
+    end.
 
 encode_optional_refund_cash(Params = #{<<"amount">> := _, <<"currency">> := _}, _) ->
     encode_cash(Params);
