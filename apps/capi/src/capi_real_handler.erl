@@ -1154,7 +1154,7 @@ process_request('GetPaymentInstitutionPaymentTerms', Req, Context, ReqCtx) ->
     end;
 process_request('GetPaymentInstitutionPayoutMethods', Req, Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
-    VS = prepare_varset(Req),
+    VS = prepare_varset(Req, Context),
     case compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) of
         {ok, #domain_TermSet{
             payouts = #domain_PayoutsServiceTerms{
@@ -1170,7 +1170,7 @@ process_request('GetPaymentInstitutionPayoutMethods', Req, Context, ReqCtx) ->
     end;
 process_request('GetPaymentInstitutionPayoutSchedules', Req, Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
-    VS = prepare_varset(Req),
+    VS = prepare_varset(Req, Context),
     case compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) of
         {ok, #domain_TermSet{payouts = #domain_PayoutsServiceTerms{payout_schedules = Schedules}}} ->
             {ok, {200, #{}, decode_business_schedules_selector(Schedules)}};
@@ -4967,7 +4967,6 @@ get_default_url_lifetime() ->
 
 compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
     prepare_party(
         Context,
         ReqCtx,
@@ -4975,18 +4974,20 @@ compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) ->
             service_call(
                 party_management,
                 'ComputePaymentInstitutionTerms',
-                [UserInfo, PartyID, ?payment_institution_ref(PaymentInstitutionID), VS],
+                [UserInfo, ?payment_institution_ref(PaymentInstitutionID), VS],
                 ReqCtx
             )
         end
     ).
 
-prepare_varset(Req) ->
+prepare_varset(Req, Context) ->
     Currency = encode_optional_currency(genlib_map:get(currency, Req)),
     PayoutMethod = encode_optional_payout_method(genlib_map:get(payoutMethod, Req)),
+    PartyID = get_party_id(Context),
     #payproc_Varset{
         currency = Currency,
-        payout_method = PayoutMethod
+        payout_method = PayoutMethod,
+        party_id = PartyID
     }.
 
 merge_and_compact(M1, M2) ->
