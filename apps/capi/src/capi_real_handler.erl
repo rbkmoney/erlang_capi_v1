@@ -990,7 +990,7 @@ process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
 process_request('GetMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party(ReqCtx, UserInfo, PartyID),
+    {ok, Party} = get_my_party_with_create(Context, ReqCtx, UserInfo, PartyID),
     Resp = decode_party(Party),
     {ok, {200, #{}, Resp}};
 process_request('SuspendMyParty', _Req, Context, ReqCtx) ->
@@ -4563,6 +4563,27 @@ get_payment_by_id(ReqCtx, UserInfo, InvoiceID, PaymentID) ->
         ReqCtx
     ).
 
+create_party(Context, ReqCtx, UserInfo, PartyID) ->
+    PartyParams = #payproc_PartyParams{
+        contact_info = #domain_PartyContactInfo{
+            email = capi_auth:get_claim(<<"email">>, get_auth_context(Context))
+        }
+    },
+    Result = service_call(
+        party_management,
+        'Create',
+        [UserInfo, PartyID, PartyParams],
+        ReqCtx
+    ),
+    case Result of
+        {ok, _} ->
+            ok;
+        {exception, #payproc_PartyExists{}} ->
+            ok;
+        Error ->
+            Error
+    end.
+
 get_my_party(ReqCtx, UserInfo, PartyID) ->
     service_call(
         party_management,
@@ -4570,6 +4591,22 @@ get_my_party(ReqCtx, UserInfo, PartyID) ->
         [UserInfo, PartyID],
         ReqCtx
     ).
+
+get_my_party_with_create(Context, ReqCtx, UserInfo, PartyID) ->
+    Result0 = get_my_party(ReqCtx, UserInfo, PartyID),
+    case Result0 of
+        {exception, #payproc_PartyNotFound{}} ->
+            _ = logger:info("Attempting to create a missing party"),
+            Result1 = create_party(Context, ReqCtx, UserInfo, PartyID),
+            case Result1 of
+                ok ->
+                    get_my_party(ReqCtx, UserInfo, PartyID);
+                Error ->
+                    Error
+            end;
+        _ ->
+            Result0
+    end.
 
 delete_webhook(PartyID, WebhookID, ReqCtx) ->
     case get_webhook(PartyID, WebhookID, ReqCtx) of
