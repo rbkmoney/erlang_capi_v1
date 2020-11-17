@@ -843,7 +843,7 @@ process_request('SuspendShop', Req, Context, ReqCtx) ->
 process_request('GetShops', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, #domain_Party{shops = Shops}} = get_my_party(ReqCtx, UserInfo, PartyID),
+    {ok, #domain_Party{shops = Shops}} = get_party(ReqCtx, UserInfo, PartyID),
     Resp = decode_shops_map(Shops),
     {ok, {200, #{}, Resp}};
 process_request('GetShopByID', Req, Context, ReqCtx) ->
@@ -911,14 +911,14 @@ process_request('DownloadFile', Req, Context, ReqCtx) ->
 process_request('GetContracts', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party(ReqCtx, UserInfo, PartyID),
+    {ok, Party} = get_party(ReqCtx, UserInfo, PartyID),
     {ok, {200, #{}, decode_contracts_map(Party#domain_Party.contracts, Party#domain_Party.contractors)}};
 process_request('GetContractByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     ContractID = maps:get('contractID', Req),
 
-    {ok, Party} = get_my_party(ReqCtx, UserInfo, PartyID),
+    {ok, Party} = get_party(ReqCtx, UserInfo, PartyID),
     case genlib_map:get(ContractID, Party#domain_Party.contracts) of
         undefined ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}};
@@ -990,7 +990,7 @@ process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
 process_request('GetMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party_with_create(Context, ReqCtx, UserInfo, PartyID),
+    {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
     Resp = decode_party(Party),
     {ok, {200, #{}, Resp}};
 process_request('SuspendMyParty', _Req, Context, ReqCtx) ->
@@ -4584,7 +4584,7 @@ create_party(Context, ReqCtx, UserInfo, PartyID) ->
             Error
     end.
 
-get_my_party(ReqCtx, UserInfo, PartyID) ->
+get_party(ReqCtx, UserInfo, PartyID) ->
     service_call(
         party_management,
         'Get',
@@ -4592,15 +4592,15 @@ get_my_party(ReqCtx, UserInfo, PartyID) ->
         ReqCtx
     ).
 
-get_my_party_with_create(Context, ReqCtx, UserInfo, PartyID) ->
-    Result0 = get_my_party(ReqCtx, UserInfo, PartyID),
+get_my_party(Context, ReqCtx, UserInfo, PartyID) ->
+    Result0 = get_party(ReqCtx, UserInfo, PartyID),
     case Result0 of
         {exception, #payproc_PartyNotFound{}} ->
             _ = logger:info("Attempting to create a missing party"),
             Result1 = create_party(Context, ReqCtx, UserInfo, PartyID),
             case Result1 of
                 ok ->
-                    get_my_party(ReqCtx, UserInfo, PartyID);
+                    get_party(ReqCtx, UserInfo, PartyID);
                 Error ->
                     Error
             end;
@@ -4689,7 +4689,7 @@ get_events(Limit, After, GetterFun) ->
 construct_payment_methods(ServiceName, Args, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party(ReqCtx, UserInfo, PartyID),
+    {ok, Party} = get_party(ReqCtx, UserInfo, PartyID),
     Revision = Party#domain_Party.revision,
     PartyRevisionParams = {revision, Revision},
     case compute_terms(ServiceName, Args ++ [PartyRevisionParams], ReqCtx) of
