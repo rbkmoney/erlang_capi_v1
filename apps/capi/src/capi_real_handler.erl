@@ -843,9 +843,14 @@ process_request('SuspendShop', Req, Context, ReqCtx) ->
 process_request('GetShops', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, #domain_Party{shops = Shops}} = get_party(ReqCtx, UserInfo, PartyID),
-    Resp = decode_shops_map(Shops),
-    {ok, {200, #{}, Resp}};
+    Result = get_party(ReqCtx, UserInfo, PartyID),
+    case Result of
+        {ok, #domain_Party{shops = Shops}} ->
+            Resp = decode_shops_map(Shops),
+            {ok, {200, #{}, Resp}};
+        {exception, #payproc_PartyNotFound{}} ->
+            {ok, {400, #{}, general_error(<<"Party not found">>)}}
+    end;
 process_request('GetShopByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -911,19 +916,28 @@ process_request('DownloadFile', Req, Context, ReqCtx) ->
 process_request('GetContracts', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, Party} = get_party(ReqCtx, UserInfo, PartyID),
-    {ok, {200, #{}, decode_contracts_map(Party#domain_Party.contracts, Party#domain_Party.contractors)}};
+    Result = get_party(ReqCtx, UserInfo, PartyID),
+    case Result of
+        {ok, Party} ->
+            {ok, {200, #{}, decode_contracts_map(Party#domain_Party.contracts, Party#domain_Party.contractors)}};
+        {exception, #payproc_PartyNotFound{}} ->
+            {ok, {400, #{}, general_error(<<"Party not found">>)}}
+    end;
 process_request('GetContractByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    ContractID = maps:get('contractID', Req),
-
-    {ok, Party} = get_party(ReqCtx, UserInfo, PartyID),
-    case genlib_map:get(ContractID, Party#domain_Party.contracts) of
-        undefined ->
-            {ok, {404, #{}, general_error(<<"Contract not found">>)}};
-        Contract ->
-            {ok, {200, #{}, decode_contract(Contract, Party#domain_Party.contractors)}}
+    Result = get_party(ReqCtx, UserInfo, PartyID),
+    case Result of
+        {ok, Party} ->
+            ContractID = maps:get('contractID', Req),
+            case genlib_map:get(ContractID, Party#domain_Party.contracts) of
+                undefined ->
+                    {ok, {404, #{}, general_error(<<"Contract not found">>)}};
+                Contract ->
+                    {ok, {200, #{}, decode_contract(Contract, Party#domain_Party.contractors)}}
+            end;
+        {exception, #payproc_PartyNotFound{}} ->
+            {ok, {400, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetPayoutTools', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -990,9 +1004,16 @@ process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
 process_request('GetMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
-    Resp = decode_party(Party),
-    {ok, {200, #{}, Resp}};
+    Result = get_my_party(Context, ReqCtx, UserInfo, PartyID),
+    case Result of
+        {ok, Party} ->
+            Resp = decode_party(Party),
+            {ok, {200, #{}, Resp}};
+        {exception, #payproc_PartyNotFound{}} ->
+            {ok, {400, #{}, general_error(<<"Party not found">>)}};
+        Error ->
+            Error
+    end;
 process_request('SuspendMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
@@ -4689,20 +4710,25 @@ get_events(Limit, After, GetterFun) ->
 construct_payment_methods(ServiceName, Args, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
-    {ok, Party} = get_party(ReqCtx, UserInfo, PartyID),
-    Revision = Party#domain_Party.revision,
-    PartyRevisionParams = {revision, Revision},
-    case compute_terms(ServiceName, Args ++ [PartyRevisionParams], ReqCtx) of
-        {ok, #domain_TermSet{payments = undefined}} ->
-            {ok, []};
-        {ok, #domain_TermSet{
-            payments = #domain_PaymentsServiceTerms{
-                payment_methods = PaymentMethodRefs
-            }
-        }} ->
-            {ok, decode_payment_methods(PaymentMethodRefs)};
-        Error ->
-            Error
+    Result = get_party(ReqCtx, UserInfo, PartyID),
+    case Result of
+        {ok, Party} ->
+            Revision = Party#domain_Party.revision,
+            PartyRevisionParams = {revision, Revision},
+            case compute_terms(ServiceName, Args ++ [PartyRevisionParams], ReqCtx) of
+                {ok, #domain_TermSet{payments = undefined}} ->
+                    {ok, []};
+                {ok, #domain_TermSet{
+                    payments = #domain_PaymentsServiceTerms{
+                        payment_methods = PaymentMethodRefs
+                    }
+                }} ->
+                    {ok, decode_payment_methods(PaymentMethodRefs)};
+                Error ->
+                    Error
+            end;
+        {exception, #payproc_PartyNotFound{}} ->
+            {ok, {400, #{}, general_error(<<"Party not found">>)}}
     end.
 
 decode_payment_methods(undefined) ->
