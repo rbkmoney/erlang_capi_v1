@@ -849,7 +849,7 @@ process_request('GetShops', _Req, Context, ReqCtx) ->
             Resp = decode_shops_map(Shops),
             {ok, {200, #{}, Resp}};
         {exception, #payproc_PartyNotFound{}} ->
-            {ok, {400, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetShopByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -921,7 +921,7 @@ process_request('GetContracts', _Req, Context, ReqCtx) ->
         {ok, Party} ->
             {ok, {200, #{}, decode_contracts_map(Party#domain_Party.contracts, Party#domain_Party.contractors)}};
         {exception, #payproc_PartyNotFound{}} ->
-            {ok, {400, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetContractByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -937,7 +937,7 @@ process_request('GetContractByID', Req, Context, ReqCtx) ->
                     {ok, {200, #{}, decode_contract(Contract, Party#domain_Party.contractors)}}
             end;
         {exception, #payproc_PartyNotFound{}} ->
-            {ok, {400, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetPayoutTools', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -1010,7 +1010,7 @@ process_request('GetMyParty', _Req, Context, ReqCtx) ->
             Resp = decode_party(Party),
             {ok, {200, #{}, Resp}};
         {exception, #payproc_PartyNotFound{}} ->
-            {ok, {400, #{}, general_error(<<"Party not found">>)}};
+            {ok, {404, #{}, general_error(<<"Party not found">>)}};
         Error ->
             Error
     end;
@@ -4728,7 +4728,7 @@ construct_payment_methods(ServiceName, Args, Context, ReqCtx) ->
                     Error
             end;
         {exception, #payproc_PartyNotFound{}} ->
-            {ok, {400, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end.
 
 decode_payment_methods(undefined) ->
