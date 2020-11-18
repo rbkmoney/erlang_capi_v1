@@ -50,19 +50,7 @@ get_authorizer_child_spec(jwt, Options) ->
 
 -spec get_logic_handler_info() -> {Handler :: atom(), [Spec :: supervisor:child_spec()] | []}.
 get_logic_handler_info() ->
-    case genlib_app:env(?APP, service_type) of
-        mock ->
-            Spec = genlib_app:permanent(
-                {capi_mock_handler, capi_mock_handler, start_link},
-                none,
-                []
-            ),
-            {capi_mock_handler, [Spec]};
-        real ->
-            {capi_real_handler, []};
-        undefined ->
-            exit(undefined_service_type)
-    end.
+    {capi_real_handler, []}.
 
 -spec enable_health_logging(erl_health:check()) -> erl_health:check().
 enable_health_logging(Check) ->
