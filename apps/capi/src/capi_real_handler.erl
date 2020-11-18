@@ -101,7 +101,8 @@ process_request('CreateInvoice' = OperationID, Req, Context, ReqCtx) ->
                 #payproc_InvalidShopStatus{} ->
                     {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
                 #payproc_InvoiceTermsViolated{} ->
-                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}};
+                    {ok,
+                        {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}};
                 #payproc_PartyNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Party not found">>)}}
             end
@@ -775,7 +776,8 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
                 #payproc_InvoiceTemplateRemoved{} ->
                     {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
                 #payproc_InvoiceTermsViolated{} ->
-                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}};
+                    {ok,
+                        {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}};
                 #payproc_PartyNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Party not found">>)}}
             end
@@ -883,7 +885,7 @@ process_request('GetShopByID', Req, Context, ReqCtx) ->
             {ok, {200, #{}, Resp}};
         {exception, #payproc_ShopNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Shop not found">>)}};
-        #payproc_PartyNotFound{} ->
+        {exception, #payproc_PartyNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetReports', Req, Context, ReqCtx) ->
@@ -990,7 +992,7 @@ process_request('GetPayoutToolByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ContractNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}};
         {exception, #payproc_PartyNotFound{}} ->
-                        {ok, {404, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetContractAdjustments', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -1005,7 +1007,7 @@ process_request('GetContractAdjustments', Req, Context, ReqCtx) ->
         {exception, #payproc_ContractNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}};
         {exception, #payproc_PartyNotFound{}} ->
-                        {ok, {404, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -1025,7 +1027,7 @@ process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ContractNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Contract not found">>)}};
         {exception, #payproc_PartyNotFound{}} ->
-                        {ok, {404, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetMyParty', _Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -1074,7 +1076,7 @@ process_request('ActivateMyParty', _Req, Context, ReqCtx) ->
             {ok, {204, #{}, undefined}};
         {exception, #payproc_InvalidPartyStatus{status = {suspension, {active, _}}}} ->
             {ok, {204, #{}, undefined}};
-        #payproc_PartyNotFound{} ->
+        {exception, #payproc_PartyNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetCategories', _Req, Context, ReqCtx) ->
@@ -1145,7 +1147,7 @@ process_request('GetPaymentInstitutionPaymentTerms', Req, Context, ReqCtx) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             {404, #{}, general_error(<<"Payment institution not found">>)};
         {exception, #payproc_PartyNotFound{}} ->
-                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetPaymentInstitutionPayoutMethods', Req, Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
@@ -1163,7 +1165,7 @@ process_request('GetPaymentInstitutionPayoutMethods', Req, Context, ReqCtx) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             {404, #{}, general_error(<<"Payment institution not found">>)};
         {exception, #payproc_PartyNotFound{}} ->
-                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetPaymentInstitutionPayoutSchedules', Req, Context, ReqCtx) ->
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
@@ -1176,7 +1178,7 @@ process_request('GetPaymentInstitutionPayoutSchedules', Req, Context, ReqCtx) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             {404, #{}, general_error(<<"Payment institution not found">>)};
         {exception, #payproc_PartyNotFound{}} ->
-                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetAccountByID', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -1194,8 +1196,8 @@ process_request('GetAccountByID', Req, Context, ReqCtx) ->
             {ok, {200, #{}, Resp}};
         {exception, #payproc_AccountNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Account not found">>)}};
-        #payproc_PartyNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
+        {exception, #payproc_PartyNotFound{}} ->
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetClaims', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -1211,7 +1213,7 @@ process_request('GetClaims', Req, Context, ReqCtx) ->
         {ok, Claims} ->
             Resp = decode_claims(filter_claims(ClaimStatus, Claims)),
             {ok, {200, #{}, Resp}};
-        #payproc_PartyNotFound{} ->
+        {exception, #payproc_PartyNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('GetClaimByID', Req, Context, ReqCtx) ->
@@ -1236,7 +1238,7 @@ process_request('GetClaimByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ClaimNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Claim not found">>)}};
         {exception, #payproc_PartyNotFound{}} ->
-                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('CreateClaim', Req, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
@@ -1320,7 +1322,7 @@ process_request('RevokeClaimByID', Req, Context, ReqCtx) ->
                 #payproc_InvalidClaimRevision{} ->
                     {ok, {400, #{}, logic_error(invalidClaimRevision, <<"Invalid claim revision">>)}};
                 #payproc_PartyNotFound{} ->
-                        {ok, {404, #{}, general_error(<<"Party not found">>)}}
+                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
             end
     end;
 process_request('CreateWebhook', Req, Context, ReqCtx) ->
@@ -1385,7 +1387,7 @@ process_request('CreateCustomer', Req, Context, ReqCtx) ->
                 #payproc_OperationNotPermitted{} ->
                     {ok, {400, #{}, logic_error(operationNotPermitted, <<"Operation not permitted">>)}};
                 #payproc_PartyNotFound{} ->
-                        {ok, {404, #{}, general_error(<<"Party not found">>)}}
+                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
             end
     end;
 process_request('GetCustomerById', Req, _Context, ReqCtx) ->
