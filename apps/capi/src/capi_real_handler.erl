@@ -687,7 +687,7 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
         Params = encode_invoice_tpl_update_params(
             maps:get('InvoiceTemplateUpdateParams', Req),
             fun() ->
-                get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID)
+                get_invoice_tpl(ReqCtx, UserInfo, InvoiceTplID)
             end
         ),
         service_call(
@@ -712,9 +712,7 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
                 #payproc_InvoiceTemplateNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
                 #payproc_InvoiceTemplateRemoved{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
-                #payproc_PartyNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
+                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}}
             end
     catch
         throw:#payproc_InvalidUser{} ->
@@ -724,7 +722,9 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
         throw:#payproc_InvoiceTemplateRemoved{} ->
             {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
         throw:zero_invoice_lifetime ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}}
+            {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}};
+        throw:#payproc_PartyNotFound{} ->
+            {ok, {404, #{}, general_error(<<"Party not found">>)}}
     end;
 process_request('DeleteInvoiceTemplate', Req, Context, ReqCtx) ->
     InvoiceTplID = maps:get('invoiceTemplateID', Req),
@@ -4619,6 +4619,14 @@ get_customer_by_id(ReqCtx, CustomerID) ->
         [CustomerID, EventRange],
         ReqCtx
     ).
+
+get_invoice_tpl(ReqCtx, UserInfo, InvoiceTplID) ->
+    case get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID) of
+        {ok, InvoiceTpl} ->
+            InvoiceTpl;
+        {exception, Exception} ->
+            throw(Exception)
+    end.
 
 get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID) ->
     service_call(
