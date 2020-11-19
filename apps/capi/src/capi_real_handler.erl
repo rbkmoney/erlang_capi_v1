@@ -712,7 +712,9 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
                 #payproc_InvoiceTemplateNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
                 #payproc_InvoiceTemplateRemoved{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}}
+                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                #payproc_PartyNotFound{} ->
+                    {ok, {404, #{}, general_error(<<"Party not found">>)}}
             end
     catch
         throw:#payproc_InvalidUser{} ->
