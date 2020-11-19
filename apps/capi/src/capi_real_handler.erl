@@ -101,7 +101,8 @@ process_request('CreateInvoice' = OperationID, Req, Context, ReqCtx) ->
                 #payproc_InvalidShopStatus{} ->
                     {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
                 #payproc_InvoiceTermsViolated{} ->
-                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}};
+                    Message = <<"Invoice parameters violate contract terms">>,
+                    {ok, {400, #{}, logic_error(invoiceTermsViolated, Message)}};
                 #payproc_PartyNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Party not found">>)}}
             end
@@ -775,7 +776,8 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
                 #payproc_InvoiceTemplateRemoved{} ->
                     {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
                 #payproc_InvoiceTermsViolated{} ->
-                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}};
+                    Message = <<"Invoice parameters violate contract terms">>,
+                    {ok, {400, #{}, logic_error(invoiceTermsViolated, Message)}};
                 #payproc_PartyNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Party not found">>)}}
             end
