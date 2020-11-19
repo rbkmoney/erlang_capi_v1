@@ -669,7 +669,7 @@ process_request('CreateInvoiceTemplate', Req, Context, ReqCtx) ->
 process_request('GetInvoiceTemplateByID', Req, Context, ReqCtx) ->
     InvoiceTplID = maps:get('invoiceTemplateID', Req),
     UserInfo = get_user_info(Context),
-    Result = get_invoice_tpl(ReqCtx, UserInfo, InvoiceTplID),
+    Result = get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID),
     case Result of
         {ok, InvoiceTpl} ->
             {ok, {200, #{}, decode_invoice_tpl(InvoiceTpl)}};
@@ -687,7 +687,7 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
         Params = encode_invoice_tpl_update_params(
             maps:get('InvoiceTemplateUpdateParams', Req),
             fun() ->
-                get_invoice_tpl(InvoiceTplID, UserInfo, ReqCtx)
+                get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID)
             end
         ),
         service_call(
@@ -4620,7 +4620,7 @@ get_customer_by_id(ReqCtx, CustomerID) ->
         ReqCtx
     ).
 
-get_invoice_tpl(ReqCtx, UserInfo, InvoiceTplID) ->
+get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID) ->
     service_call(
         invoice_templating,
         'Get',
