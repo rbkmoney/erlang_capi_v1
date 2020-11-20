@@ -1039,8 +1039,6 @@ process_request('GetMyParty', _Req, Context, ReqCtx) ->
         {ok, Party} ->
             Resp = decode_party(Party),
             {ok, {200, #{}, Resp}};
-        {exception, #payproc_PartyNotFound{}} ->
-            {ok, {404, #{}, general_error(<<"Party not found">>)}};
         Error ->
             Error
     end;
