@@ -30,7 +30,7 @@
 
 -define(CAPI_NS, <<"com.rbkmoney.capi">>).
 
--spec authorize_api_key(swag_server:operation_id(), swag_server:api_key(), handler_opts()) ->
+-spec authorize_api_key(swag_server:operation_id(), swag_server:api_key(), swag_server:handler_opts(_)) ->
     Result :: false | {true, capi_auth:context()}.
 authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
     _ = capi_utils:logtag_process(operation_id, OperationID),
@@ -54,377 +54,482 @@ map_error(validation_error, Error) ->
         <<"message">> => Message
     }).
 
--type request_data() :: #{atom() | binary() => term()}.
--type handler_opts() :: swag_server:handler_opts(_).
+%%
+
+-type auth_state() ::
+    {initialized, capi_auth:provider()} |
+    completed.
+
+-type reply() :: {Code :: 200..499, Headers :: #{}, Response :: #{}}.
+
+-record(reqst, {
+    operation_id :: swag_server:operation_id(),
+    user_id :: binary(),
+    auth_st :: auth_state(),
+    request_ctx :: swag_server:request_context(),
+    woody_ctx :: woody_context:ctx(),
+    reply :: reply()
+}).
+
+-type request_state() :: #reqst{}.
 
 -spec handle_request(
     OperationID :: swag_server:operation_id(),
-    Req :: request_data(),
-    Context :: swag_server:request_context(),
-    handler_opts()
+    Req :: swag_server:object(),
+    ReqCtx :: swag_server:request_context(),
+    HandlerOpts :: swag_server:handler_opts(_)
 ) -> {ok | error, swag_server:response()}.
-handle_request(OperationID, Req, Context, _HandlerOpts) ->
+handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
     _ = logger:info("Processing request ~p", [OperationID]),
     try
-        case capi_auth:authorize_operation(OperationID, Req, get_auth_context(Context)) of
-            ok ->
-                ReqContext = create_context(Req, get_auth_context(Context)),
-                process_request(OperationID, Req, Context, ReqContext);
-            {error, _} = Error ->
-                _ = logger:info("Operation ~p authorization failed due to ~p", [OperationID, Error]),
-                {error, {401, #{}, general_error(<<"Unauthorized operation">>)}}
-        end
+        AuthCtx = get_auth_context(ReqCtx),
+        WoodyCtx = create_woody_context(Req, AuthCtx),
+        AuthProvider = capi_auth:init_provider(ReqCtx, WoodyCtx),
+        ReqSt1 = #reqst{
+            operation_id = OperationID,
+            user_id = capi_auth:get_subject_id(AuthCtx),
+            auth_st = {initialized, AuthProvider},
+            request_ctx = ReqCtx,
+            woody_ctx = WoodyCtx
+        },
+        ReqSt2 = process_request(OperationID, Req, ReqSt1),
+        ok = assert_auth_completed(OperationID, ReqSt2),
+        {ok, assert_reply(OperationID, ReqSt2)}
     catch
+        throw:{forbidden, Reason} ->
+            _ = logger:info("Operation ~p authorization failed due to: ~p", [OperationID, Reason]),
+            % NOTE
+            % Apparently there are no mentions of `401` error conditions in the v1 spec, and I guess
+            % will never be. Hence this `error` tuple.
+            {error, {401, #{}, general_error(<<"Unauthorized operation">>)}};
         error:{woody_error, {Source, Class, Details}} ->
             process_woody_error(Source, Class, Details)
     end.
 
+assert_auth_completed(_OperationID, #reqst{auth_st = completed}) ->
+    ok;
+assert_auth_completed(OperationID, #reqst{auth_st = AuthSt}) ->
+    erlang:error({'Authorization was not completed', OperationID, AuthSt}).
+
+assert_reply(_OperationID, #reqst{reply = Reply}) when Reply /= undefined ->
+    Reply;
+assert_reply(OperationID, _ReqSt) ->
+    erlang:error({'Nothing to reply with', OperationID}).
+
 -spec process_request(
     OperationID :: swag_server:operation_id(),
-    Req :: request_data(),
-    Context :: swag_server:request_context(),
-    ReqCtx :: woody_context:ctx()
-) -> {Code :: non_neg_integer(), Headers :: #{}, Response :: #{}}.
-process_request('CreateInvoice' = OperationID, Req, Context, ReqCtx) ->
-    PartyID = get_party_id(Context),
-    try create_invoice(PartyID, maps:get('InvoiceParams', Req), Context, ReqCtx, OperationID) of
+    Req :: swag_server:object(),
+    ReqSt :: request_state()
+) -> request_state().
+process_request('CreateInvoice' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceParams = maps:get('InvoiceParams', Req),
+    ShopID = maps:get(<<"shopID">>, InvoiceParams),
+    {allowed, ReqSt1} = authorize_operation(
+        #{party => PartyID, shop => ShopID},
+        ReqSt0
+    ),
+    try create_invoice(PartyID, InvoiceParams, OperationID, ReqSt1) of
         {ok, #'payproc_Invoice'{invoice = Invoice}} ->
-            {ok, {201, #{}, make_invoice_and_token(Invoice, PartyID, Context)}};
+            reply(201, make_invoice_and_token(Invoice, PartyID), ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #payproc_ShopNotFound{} ->
-                    {ok, {400, #{}, logic_error(invalidShopID, <<"Shop not found">>)}};
+                    reply_bad_request(invalidShopID, <<"Shop not found">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvoiceTermsViolated{} ->
-                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}}
+                    reply_bad_request(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>, ReqSt1)
             end
     catch
         invoice_cart_empty ->
-            {ok, {400, #{}, logic_error(invalidInvoiceCart, <<"Wrong size. Path to item: cart">>)}};
+            reply_bad_request(invalidInvoiceCart, <<"Wrong size. Path to item: cart">>, ReqSt1);
         invalid_invoice_cost ->
-            {ok, {400, #{}, logic_error(invalidInvoiceCost, <<"Invalid invoice amount">>)}}
+            reply_bad_request(invalidInvoiceCost, <<"Invalid invoice amount">>, ReqSt1)
     end;
-process_request('CreatePayment' = OperationID, Req, Context, ReqCtx) ->
+
+process_request('CreatePayment' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get('invoiceID', Req),
     PaymentParams = maps:get('PaymentParams', Req),
-    PartyID = get_party_id(Context),
+    {allowed, ReqSt1} = authorize_operation(
+        #{party => PartyID, invoice => InvoiceID},
+        [{payproc, #{invoice => InvoiceID}}],
+        ReqSt0
+    ),
     Result =
         try
-            create_payment(PartyID, InvoiceID, PaymentParams, Context, ReqCtx, OperationID)
+            create_payment(PartyID, InvoiceID, PaymentParams, OperationID, ReqSt1)
         catch
             throw:Error when Error =:= invalid_token orelse Error =:= invalid_payment_session ->
                 {error, Error}
         end,
-
     case Result of
         {ok, Payment} ->
-            {ok, {201, #{}, decode_invoice_payment(InvoiceID, Payment)}};
+            reply(201, decode_invoice_payment(InvoiceID, Payment), ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidInvoiceStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidInvoiceStatus, <<"Invalid invoice status">>)}};
+                    reply_bad_request(invalidInvoiceStatus, <<"Invalid invoice status">>, ReqSt1);
                 #payproc_InvoicePaymentPending{} ->
-                    {ok, {400, #{}, logic_error(invoicePaymentPending, <<"Invoice payment pending">>)}};
+                    reply_bad_request(invoicePaymentPending, <<"Invoice payment pending">>, ReqSt1);
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
             end;
         {error, invalid_token} ->
-            {ok,
-                {400, #{},
-                    logic_error(
-                        invalidPaymentToolToken,
-                        <<"Specified payment tool token is invalid">>
-                    )}};
+            reply_bad_request(invalidPaymentToolToken, <<"Specified payment tool token is invalid">>, ReqSt1);
         {error, invalid_payment_session} ->
-            {ok,
-                {400, #{},
-                    logic_error(
-                        invalidPaymentSession,
-                        <<"Specified payment session is invalid">>
-                    )}}
+            reply_bad_request(invalidPaymentSession, <<"Specified payment session is invalid">>, ReqSt1)
     end;
-process_request('CreateInvoiceAccessToken', Req, Context, ReqCtx) ->
-    PartyID = get_party_id(Context),
-    InvoiceID = maps:get(invoiceID, Req),
-    UserInfo = get_user_info(Context),
-    Result = get_invoice_by_id(ReqCtx, UserInfo, InvoiceID),
-    case Result of
-        {ok, #'payproc_Invoice'{}} ->
-            Token = make_invoice_access_token(InvoiceID, PartyID, Context),
-            {ok, {201, #{}, Token}};
-        {exception, Exception} ->
-            case Exception of
-                #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
-                #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
-            end
-    end;
-process_request('GetInvoiceByID', Req, Context, ReqCtx) ->
-    InvoiceID = maps:get(invoiceID, Req),
-    UserInfo = get_user_info(Context),
-    Result = get_invoice_by_id(ReqCtx, UserInfo, InvoiceID),
-    case Result of
-        {ok, #'payproc_Invoice'{invoice = Invoice}} ->
-            Resp = decode_invoice(Invoice),
-            {ok, {200, #{}, Resp}};
-        {exception, Exception} ->
-            case Exception of
-                #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
-                #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
-            end
-    end;
-process_request('FulfillInvoice', Req, Context, ReqCtx) ->
-    InvoiceID = maps:get(invoiceID, Req),
 
+process_request('CreateInvoiceAccessToken' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceID = maps:get(invoiceID, Req),
+    InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID}},
+        [{payproc, with_woody_result(invoice, InvoiceResult, #{})}],
+        ReqSt0
+    ),
+    case InvoiceResult of
+        {ok, #'payproc_Invoice'{}} ->
+            reply(201, make_invoice_access_token(InvoiceID, PartyID), ReqSt1);
+        {exception, Exception} ->
+            case Exception of
+                #payproc_InvalidUser{} ->
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
+                #payproc_InvoiceNotFound{} ->
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
+            end
+    end;
+
+process_request('GetInvoiceByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceID = maps:get(invoiceID, Req),
+    InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID}},
+        [{payproc, with_woody_result(invoice, InvoiceResult, #{})}],
+        ReqSt0
+    ),
+    case InvoiceResult of
+        {ok, #'payproc_Invoice'{invoice = Invoice}} ->
+            reply(200, decode_invoice(Invoice), ReqSt1);
+        {exception, Exception} ->
+            case Exception of
+                #payproc_InvalidUser{} ->
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
+                #payproc_InvoiceNotFound{} ->
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
+            end
+    end;
+
+process_request('FulfillInvoice' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceID = maps:get(invoiceID, Req),
     Params = maps:get('Reason', Req),
     Reason = maps:get(<<"reason">>, Params),
-
-    UserInfo = get_user_info(Context),
-
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID}},
+        [{payproc, #{invoice => InvoiceID}}],
+        ReqSt0
+    ),
     Result = service_call(
         invoicing,
         'Fulfill',
-        [UserInfo, InvoiceID, Reason],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID, Reason],
+        ReqSt1
     ),
     case Result of
         {ok, _} ->
-            {ok, {204, #{}, undefined}};
+            reply(204, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidInvoiceStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidInvoiceStatus, <<"Invalid invoice status">>)}};
+                    reply_bad_request(invalidInvoiceStatus, <<"Invalid invoice status">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-process_request('RescindInvoice', Req, Context, ReqCtx) ->
-    InvoiceID = maps:get(invoiceID, Req),
 
+process_request('RescindInvoice' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceID = maps:get(invoiceID, Req),
     Params = maps:get('Reason', Req),
     Reason = maps:get(<<"reason">>, Params),
-
-    UserInfo = get_user_info(Context),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID}},
+        [{payproc, #{invoice => InvoiceID}}],
+        ReqSt0
+    ),
     Result = service_call(
         invoicing,
         'Rescind',
-        [UserInfo, InvoiceID, Reason],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID, Reason],
+        ReqSt1
     ),
     case Result of
         {ok, _} ->
-            {ok, {204, #{}, undefined}};
+            reply(204, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidInvoiceStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidInvoiceStatus, <<"Invalid invoice status">>)}};
+                    reply_bad_request(invalidInvoiceStatus, <<"Invalid invoice status">>, ReqSt1);
                 #payproc_InvoicePaymentPending{} ->
-                    {ok, {400, #{}, logic_error(invoicePaymentPending, <<"Invoice payment pending">>)}};
+                    reply_bad_request(invoicePaymentPending, <<"Invoice payment pending">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-process_request('GetInvoiceEvents', Req, Context, ReqCtx) ->
+
+process_request('GetInvoiceEvents' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
-    UserInfo = get_user_info(Context),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID}},
+        [{payproc, #{invoice => InvoiceID}}],
+        ReqSt0
+    ),
     GetterFun = fun(Range) ->
         service_call(
             invoicing,
             'GetEvents',
-            [UserInfo, InvoiceID, Range],
-            ReqCtx
+            [_UserInfo = undefined, InvoiceID, Range],
+            ReqSt1
         )
     end,
-    DecodingContext = #{
-        user_info => UserInfo,
-        req_ctx => ReqCtx
-    },
     Result = collect_events(
         maps:get(limit, Req),
         genlib_map:get(eventID, Req),
         GetterFun,
         fun decode_invoice_event/2,
-        DecodingContext
+        ReqSt1
     ),
     case Result of
         {ok, Events} when is_list(Events) ->
-            {ok, {200, #{}, Events}};
+            reply(200, Events, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_EventNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Event not found">>)}};
+                    reply_not_found(<<"Event not found">>, ReqSt1);
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}}
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1)
             end
     end;
-process_request('GetInvoicePaymentMethods', Req, Context, ReqCtx) ->
+
+process_request('GetInvoicePaymentMethods' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceID = maps:get(invoiceID, Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID}},
+        [{payproc, #{invoice => InvoiceID}}],
+        ReqSt0
+    ),
     Result = construct_payment_methods(
         invoicing,
-        [
-            get_user_info(Context),
-            maps:get(invoiceID, Req)
-        ],
-        Context,
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID],
+        PartyID,
+        ReqSt1
     ),
     case Result of
         {ok, PaymentMethods} when is_list(PaymentMethods) ->
-            {ok, {200, #{}, PaymentMethods}};
+            reply(200, PaymentMethods, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
-            end
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
+            end;
+        {error, party_inaccessible} ->
+            reply_not_found(<<"Invoice not found">>, ReqSt1)
     end;
-process_request('GetPayments', Req, Context, ReqCtx) ->
+
+process_request('GetPayments' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
-    UserInfo = get_user_info(Context),
-    Result = get_invoice_by_id(ReqCtx, UserInfo, InvoiceID),
-    case Result of
+    InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID}},
+        [{payproc, with_woody_result(invoice, InvoiceResult, #{})}],
+        ReqSt0
+    ),
+    case InvoiceResult of
         {ok, #'payproc_Invoice'{payments = Payments}} ->
-            Resp = [decode_invoice_payment(InvoiceID, P) || P <- Payments],
-            {ok, {200, #{}, Resp}};
+            reply(200, [decode_invoice_payment(InvoiceID, P) || P <- Payments], ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-process_request('GetPaymentByID', Req, Context, ReqCtx) ->
-    PaymentID = maps:get(paymentID, Req),
+
+process_request('GetPaymentByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
-    UserInfo = get_user_info(Context),
-    Result = get_payment_by_id(ReqCtx, UserInfo, InvoiceID, PaymentID),
-    case Result of
-        {ok, Payment} ->
-            Resp = decode_invoice_payment(InvoiceID, Payment),
-            {ok, {200, #{}, Resp}};
+    PaymentID = maps:get(paymentID, Req),
+    InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID, payment => PaymentID}},
+        [{payproc, with_woody_result(
+            payment,
+            InvoiceResult,
+            fun(Invoice) -> {Invoice, PaymentID} end, % FIXME looks crappy 💩
+            #{}
+        )}],
+        ReqSt0
+    ),
+    case InvoiceResult of
+        {ok, Invoice} ->
+            case find_payment_by_id(PaymentID, Invoice) of
+                Payment = #payproc_InvoicePayment{} ->
+                    reply(200, decode_invoice_payment(InvoiceID, Payment), ReqSt1);
+                undefined ->
+                    reply_not_found(<<"Payment not found">>, ReqSt1)
+            end;
         {exception, Exception} ->
             case Exception of
-                #payproc_InvoicePaymentNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Payment not found">>)}};
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-process_request('CancelPayment', Req, Context, ReqCtx) ->
-    PaymentID = maps:get(paymentID, Req),
+
+process_request('CancelPayment' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
+    PaymentID = maps:get(paymentID, Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID, payment => PaymentID}},
+        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        ReqSt0
+    ),
     Params = maps:get('Reason', Req),
     Reason = maps:get(<<"reason">>, Params),
-    UserInfo = get_user_info(Context),
-
     Result = service_call(
         invoicing,
         'CancelPayment',
-        [UserInfo, InvoiceID, PaymentID, Reason],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID, PaymentID, Reason],
+        ReqSt1
     ),
     case Result of
         {ok, _} ->
-            {ok, {202, #{}, undefined}};
+            reply(202, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvoicePaymentNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Payment not found">>)}};
+                    reply_not_found(<<"Payment not found">>, ReqSt1);
                 #payproc_InvalidPaymentStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPaymentStatus, <<"Invalid payment status">>)}};
+                    reply_bad_request(invalidPaymentStatus, <<"Invalid payment status">>, ReqSt1);
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #payproc_OperationNotPermitted{} ->
-                    {ok, {400, #{}, logic_error(operationNotPermitted, <<"Operation not permitted">>)}};
+                    reply_bad_request(operationNotPermitted, <<"Operation not permitted">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1)
             end
     end;
-process_request('CapturePayment', Req, Context, ReqCtx) ->
-    PaymentID = maps:get(paymentID, Req),
+
+process_request('CapturePayment' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
+    PaymentID = maps:get(paymentID, Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID, payment => PaymentID}},
+        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        ReqSt0
+    ),
     Params = maps:get('Reason', Req),
     Reason = maps:get(<<"reason">>, Params),
-    UserInfo = get_user_info(Context),
     CaptureParams = #payproc_InvoicePaymentCaptureParams{
         reason = Reason
     },
-
     Result = service_call(
         invoicing,
         'CapturePaymentNew',
-        [UserInfo, InvoiceID, PaymentID, CaptureParams],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID, PaymentID, CaptureParams],
+        ReqSt1
     ),
     case Result of
         {ok, _} ->
-            {ok, {202, #{}, undefined}};
+            reply(202, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvoicePaymentNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Payment not found">>)}};
+                    reply_not_found(<<"Payment not found">>, ReqSt1);
                 #payproc_InvalidPaymentStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPaymentStatus, <<"Invalid payment status">>)}};
+                    reply_bad_request(invalidPaymentStatus, <<"Invalid payment status">>, ReqSt1);
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #payproc_OperationNotPermitted{} ->
-                    {ok, {400, #{}, logic_error(operationNotPermitted, <<"Operation not permitted">>)}};
+                    reply_bad_request(operationNotPermitted, <<"Operation not permitted">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1)
             end
     end;
-process_request('SearchInvoices', Req, Context, ReqCtx) ->
+
+process_request('SearchInvoices' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ShopID = genlib_map:get('shopID', Req),
+    InvoiceID = genlib_map:get('invoiceID', Req),
+    OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
+    % TODO
+    % No payment ctx here, need to add or simplify proto.
+    PayprocCtx = with_maybe(invoice, InvoiceID, #{}),
+    % TODO
+    % Handle restrictions on a set of shops.
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, OpCtx},
+        [{payproc, PayprocCtx}],
+        ReqSt0
+    ),
     Query = #{
-        <<"merchant_id">> => get_party_id(Context),
-        <<"shop_id">> => genlib_map:get('shopID', Req),
-        <<"invoice_id">> => genlib_map:get('invoiceID', Req),
+        <<"merchant_id">> => PartyID,
+        <<"shop_id">> => ShopID,
+        <<"invoice_id">> => InvoiceID,
         <<"from_time">> => get_time('fromTime', Req),
         <<"to_time">> => get_time('toTime', Req),
         <<"invoice_status">> => genlib_map:get('invoiceStatus', Req),
@@ -448,12 +553,27 @@ process_request('SearchInvoices', Req, Context, ReqCtx) ->
         thrift_fun => 'GetInvoices',
         decode_fun => fun decode_stat_invoice/1
     },
-    process_search_request(invoices, Query, Req, ReqCtx, Opts);
-process_request('SearchPayments', Req, Context, ReqCtx) ->
+    process_search_request(invoices, Query, Req, Opts, ReqSt1);
+
+process_request('SearchPayments' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ShopID = genlib_map:get('shopID', Req),
+    InvoiceID = genlib_map:get('invoiceID', Req),
+    OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
+    % TODO
+    % No payment ctx here, need to add it or simplify proto.
+    PayprocCtx = with_maybe(invoice, InvoiceID, #{}),
+    % TODO
+    % Handle restrictions on a set of shops.
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, OpCtx},
+        [{payproc, PayprocCtx}],
+        ReqSt0
+    ),
     Query = #{
-        <<"merchant_id">> => get_party_id(Context),
-        <<"shop_id">> => genlib_map:get('shopID', Req),
-        <<"invoice_id">> => genlib_map:get('invoiceID', Req),
+        <<"merchant_id">> => PartyID,
+        <<"shop_id">> => ShopID,
+        <<"invoice_id">> => InvoiceID,
         <<"from_time">> => get_time('fromTime', Req),
         <<"to_time">> => get_time('toTime', Req),
         <<"payment_status">> => genlib_map:get('paymentStatus', Req),
@@ -475,45 +595,66 @@ process_request('SearchPayments', Req, Context, ReqCtx) ->
         thrift_fun => 'GetPayments',
         decode_fun => fun decode_stat_payment/1
     },
-    process_search_request(payments, Query, Req, ReqCtx, Opts);
-process_request('SearchPayouts', Req, Context, ReqCtx) ->
+    process_search_request(payments, Query, Req, Opts, ReqSt1);
+
+process_request('SearchPayouts' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ShopID = genlib_map:get('shopID', Req),
+    PayoutID = genlib_map:get('payoutID', Req),
+    OpCtx = with_maybe(payout, PayoutID, with_maybe(shop, ShopID, #{party => PartyID})),
+    PayoutsCtx = with_maybe(payout, PayoutID, #{}),
+    % TODO
+    % Handle restrictions on a set of shops.
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, OpCtx},
+        [{payoutproc, PayoutsCtx}],
+        ReqSt0
+    ),
     Query = #{
-        <<"merchant_id">> => get_party_id(Context),
-        <<"shop_id">> => genlib_map:get('shopID', Req),
+        <<"merchant_id">> => PartyID,
+        <<"shop_id">> => ShopID,
         <<"from_time">> => get_time('fromTime', Req),
         <<"to_time">> => get_time('toTime', Req),
         <<"payout_status">> => genlib_map:get('payoutStatus', Req),
-        <<"payout_id">> => genlib_map:get('payoutID', Req),
+        <<"payout_id">> => PayoutID,
         <<"payout_type">> => encode_payout_type(genlib_map:get('payoutToolType', Req))
     },
     Opts = #{
         thrift_fun => 'GetPayouts',
         decode_fun => fun decode_stat_payout/1
     },
-    process_search_request(payouts, Query, Req, ReqCtx, Opts);
-process_request('GetPaymentConversionStats', Req, Context, ReqCtx) ->
-    process_merchant_stat(payments_conversion_stat, Req, Context, ReqCtx);
-process_request('GetPaymentRevenueStats', Req, Context, ReqCtx) ->
-    process_merchant_stat(payments_turnover, Req, Context, ReqCtx);
-process_request('GetPaymentGeoStats', Req, Context, ReqCtx) ->
-    process_merchant_stat(payments_geo_stat, Req, Context, ReqCtx);
-process_request('GetPaymentRateStats', Req, Context, ReqCtx) ->
-    process_merchant_stat(customers_rate_stat, Req, Context, ReqCtx);
-process_request('GetPaymentMethodStats', Req, Context, ReqCtx) ->
+    process_search_request(payouts, Query, Req, Opts, ReqSt1);
+
+process_request('GetPaymentConversionStats' = OperationID, Req, ReqSt0) ->
+    process_merchant_stat(OperationID, payments_conversion_stat, Req, ReqSt0);
+
+process_request('GetPaymentRevenueStats' = OperationID, Req, ReqSt0) ->
+    process_merchant_stat(OperationID, payments_turnover, Req, ReqSt0);
+
+process_request('GetPaymentGeoStats' = OperationID, Req, ReqSt0) ->
+    process_merchant_stat(OperationID, payments_geo_stat, Req, ReqSt0);
+
+process_request('GetPaymentRateStats' = OperationID, Req, ReqSt0) ->
+    process_merchant_stat(OperationID, customers_rate_stat, Req, ReqSt0);
+
+process_request('GetPaymentMethodStats' = OperationID, Req, ReqSt0) ->
     bankCard = maps:get(paymentMethod, Req),
     StatType = payments_pmt_cards_stat,
-    process_merchant_stat(StatType, Req, Context, ReqCtx);
-process_request('GetLocationsNames', Req, _Context, ReqCtx) ->
+    process_merchant_stat(OperationID, StatType, Req, ReqSt0);
+
+process_request('GetLocationsNames' = OperationID, Req, ReqSt0) ->
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{}},
+        ReqSt0
+    ),
     Language = maps:get('language', Req),
     GeoIDs = ordsets:from_list(maps:get('geoIDs', Req)),
-
     Result = service_call(
         geo_ip_service,
         'GetLocationName',
         [GeoIDs, Language],
-        ReqCtx
+        ReqSt1
     ),
-
     case Result of
         {ok, LocationNames = #{}} ->
             PreparedLocationNames = maps:fold(
@@ -521,209 +662,242 @@ process_request('GetLocationsNames', Req, _Context, ReqCtx) ->
                 [],
                 LocationNames
             ),
-            {ok, {200, #{}, PreparedLocationNames}};
+            reply(200, PreparedLocationNames, ReqSt1);
         {exception, #'InvalidRequest'{errors = Errors}} ->
-            {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}}
+            reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1)
     end;
-process_request('CreateRefund' = OperationID, Req, Context, ReqCtx) ->
+
+process_request('CreateRefund' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID, payment => PaymentID}},
+        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        ReqSt0
+    ),
     RefundParams = maps:get('RefundParams', Req),
-    UserInfo = get_user_info(Context),
-    EncodingContext = #{
-        req_ctx => ReqCtx,
-        user_info => UserInfo,
-        invoice_id => InvoiceID,
-        payment_id => PaymentID
-    },
-    PartyID = get_party_id(Context),
     IdempotentKey = capi_bender:get_idempotent_key(OperationID, PartyID, undefined),
     Hash = erlang:phash2(RefundParams),
     SequenceID = create_sequence_id([InvoiceID, PaymentID], OperationID),
-    {ok, RefundID} = capi_bender:gen_by_sequence(IdempotentKey, SequenceID, Hash, ReqCtx, #{minimum => 100}),
+    {ok, RefundID} = capi_bender:gen_by_sequence(
+        IdempotentKey,
+        SequenceID,
+        Hash,
+        ReqSt1#reqst.woody_ctx,
+        #{minimum => 100}
+    ),
     Params = #payproc_InvoicePaymentRefundParams{
         id = RefundID,
         reason = genlib_map:get(<<"reason">>, RefundParams),
-        cash = encode_optional_refund_cash(RefundParams, EncodingContext)
+        cash = encode_optional_refund_cash(RefundParams, InvoiceID, PaymentID, ReqSt1)
     },
     Result = service_call(
         invoicing,
         'RefundPayment',
-        [UserInfo, InvoiceID, PaymentID, Params],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID, PaymentID, Params],
+        ReqSt1
     ),
     case Result of
         {ok, Refund} ->
-            Resp = decode_refund(Refund),
-            {ok, {201, #{}, Resp}};
+            reply(201, decode_refund(Refund), ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoicePaymentNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Payment not found">>)}};
+                    reply_not_found(<<"Payment not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_OperationNotPermitted{} ->
-                    {ok, {400, #{}, logic_error(operationNotPermitted, <<"Operation not permitted">>)}};
+                    reply_bad_request(operationNotPermitted, <<"Operation not permitted">>, ReqSt1);
                 #payproc_InvalidPaymentStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPaymentStatus, <<"Invalid invoice payment status">>)}};
+                    reply_bad_request(invalidPaymentStatus, <<"Invalid invoice payment status">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvalidContractStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidContractStatus, <<"Invalid contract status">>)}};
+                    reply_bad_request(invalidContractStatus, <<"Invalid contract status">>, ReqSt1);
                 #payproc_InsufficientAccountBalance{} ->
                     Message =
                         <<"Operation can not be conducted because of insufficient funds on the merchant account">>,
-                    {ok, {400, #{}, logic_error(insufficentAccountBalance, Message)}};
+                    reply_bad_request(insufficentAccountBalance, Message, ReqSt1);
                 #payproc_InvoicePaymentAmountExceeded{} ->
-                    {ok, {400, #{}, logic_error(invoicePaymentAmountExceeded, <<"Payment amount exceeded">>)}};
+                    reply_bad_request(invoicePaymentAmountExceeded, <<"Payment amount exceeded">>, ReqSt1);
                 #payproc_InconsistentRefundCurrency{} ->
-                    {ok, {400, #{}, logic_error(inconsistentRefundCurrency, <<"Inconsistent refund currency">>)}};
+                    reply_bad_request(inconsistentRefundCurrency, <<"Inconsistent refund currency">>, ReqSt1);
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}}
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1)
             end
     end;
-process_request('GetRefunds', Req, Context, ReqCtx) ->
+
+process_request('GetRefunds' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
-    UserInfo = get_user_info(Context),
-    Result = get_payment_by_id(ReqCtx, UserInfo, InvoiceID, PaymentID),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice => InvoiceID, payment => PaymentID}},
+        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        ReqSt0
+    ),
+    Result = get_payment_by_id(InvoiceID, PaymentID, ReqSt1),
     case Result of
         {ok, #payproc_InvoicePayment{legacy_refunds = Refunds}} ->
-            Resp = [decode_refund(R) || R <- Refunds],
-            {ok, {200, #{}, Resp}};
+            reply(200, [decode_refund(R) || R <- Refunds], ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvoicePaymentNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Payment not found">>)}};
+                    reply_not_found(<<"Payment not found">>, ReqSt1);
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-process_request('GetRefundByID', Req, Context, ReqCtx) ->
+
+process_request('GetRefundByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
     RefundID = maps:get(refundID, Req),
-    UserInfo = get_user_info(Context),
-    Result = service_call(
-        invoicing,
-        'GetPaymentRefund',
-        [UserInfo, InvoiceID, PaymentID, RefundID],
-        ReqCtx
+    InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{
+            party => PartyID,
+            invoice => InvoiceID,
+            payment => PaymentID,
+            refund => RefundID
+        }},
+        [{payproc, #{
+            refund => with_woody_result(
+                refund,
+                InvoiceResult,
+                fun (Invoice) -> {Invoice, PaymentID, RefundID} end,
+                #{}
+            )
+        }}],
+        ReqSt0
     ),
-    case Result of
-        {ok, Refund} ->
-            Resp = decode_refund(Refund),
-            {ok, {200, #{}, Resp}};
+    case InvoiceResult of
+        {ok, Invoice} ->
+            case find_payment_by_id(PaymentID, Invoice) of
+                Payment = #payproc_InvoicePayment{} ->
+                    case find_refund_by_id(RefundID, Payment) of
+                        Refund = #payproc_InvoicePaymentRefund{} ->
+                            reply(200, decode_refund(Refund), ReqSt1);
+                        undefined ->
+                            reply_not_found(<<"Invoice payment refund not found">>, ReqSt1)
+                    end;
+                undefined ->
+                    reply_not_found(<<"Payment not found">>, ReqSt1)
+            end;
         {exception, Exception} ->
             case Exception of
-                #payproc_InvoicePaymentRefundNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice payment refund not found">>)}};
-                #payproc_InvoicePaymentNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Payment not found">>)}};
                 #payproc_InvoiceNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}};
+                    reply_not_found(<<"Invoice not found">>, ReqSt1);
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice not found">>)}}
+                    reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-process_request('CreateInvoiceTemplate', Req, Context, ReqCtx) ->
-    PartyID = get_party_id(Context),
-    UserInfo = get_user_info(Context),
+
+process_request('CreateInvoiceTemplate' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceTemplateParams = maps:get('InvoiceTemplateCreateParams', Req),
+    ShopID = maps:get(<<"shopID">>, InvoiceTemplateParams),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, shop => ShopID}},
+        ReqSt0
+    ),
     try
-        Params = encode_invoice_tpl_create_params(PartyID, maps:get('InvoiceTemplateCreateParams', Req)),
-        prepare_party(
-            Context,
-            ReqCtx,
+        Params = encode_invoice_tpl_create_params(PartyID, InvoiceTemplateParams),
+        create_party_if_missing(
             fun() ->
                 service_call(
                     invoice_templating,
                     'Create',
-                    [UserInfo, Params],
-                    ReqCtx
+                    [_UserInfo = undefined, Params],
+                    ReqSt1
                 )
-            end
+            end,
+            ReqSt1
         )
     of
         {ok, InvoiceTpl} ->
-            {ok, {201, #{}, make_invoice_tpl_and_token(InvoiceTpl, PartyID, Context)}};
+            reply(201, make_invoice_tpl_and_token(InvoiceTpl, PartyID), ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #payproc_ShopNotFound{} ->
-                    {ok, {400, #{}, logic_error(invalidShopID, <<"Shop not found">>)}};
+                    reply_bad_request(invalidShopID, <<"Shop not found">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1)
             end
     catch
         throw:zero_invoice_lifetime ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}}
+            reply_bad_request(invalidRequest, <<"Lifetime cannot be zero">>, ReqSt1)
     end;
-process_request('GetInvoiceTemplateByID', Req, Context, ReqCtx) ->
-    InvoiceTplID = maps:get('invoiceTemplateID', Req),
-    UserInfo = get_user_info(Context),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID)
-        end
+
+process_request('GetInvoiceTemplateByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
+    InvoiceTemplateResult = get_invoice_tpl_by_id(InvoiceTemplateID, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice_template => InvoiceTemplateID}},
+        [{payproc, with_woody_result(invoice_template,  InvoiceTemplateResult, #{})}],
+        ReqSt0
     ),
-    case Result of
-        {ok, InvoiceTpl} ->
-            {ok, {200, #{}, decode_invoice_tpl(InvoiceTpl)}};
+    case InvoiceTemplateResult of
+        {ok, InvoiceTemplate} ->
+            reply(200, decode_invoice_tpl(InvoiceTemplate), ReqSt1);
         {exception, E} when
-            E == #payproc_InvalidUser{}; E == #payproc_InvoiceTemplateNotFound{}; E == #payproc_InvoiceTemplateRemoved{}
+            E == #payproc_InvalidUser{};
+            E == #payproc_InvoiceTemplateNotFound{};
+            E == #payproc_InvoiceTemplateRemoved{}
         ->
-            {ok, {404, #{}, general_error(<<"Invoice template not found">>)}}
+            reply_not_found(<<"Invoice template not found">>, ReqSt1)
     end;
-process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
-    InvoiceTplID = maps:get('invoiceTemplateID', Req),
-    UserInfo = get_user_info(Context),
+
+process_request('UpdateInvoiceTemplate' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
+    InvoiceTemplateResult = get_invoice_tpl_by_id(InvoiceTemplateID, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice_template => InvoiceTemplateID}},
+        [{payproc, with_woody_result(invoice_template,  InvoiceTemplateResult, #{})}],
+        ReqSt0
+    ),
     try
         Params = encode_invoice_tpl_update_params(
             maps:get('InvoiceTemplateUpdateParams', Req),
-            fun() ->
-                get_invoice_tpl(InvoiceTplID, UserInfo, ReqCtx, Context)
-            end
+            map_woody_result(InvoiceTemplateResult)
         ),
-        prepare_party(
-            Context,
-            ReqCtx,
-            fun() ->
-                service_call(
-                    invoice_templating,
-                    'Update',
-                    [UserInfo, InvoiceTplID, Params],
-                    ReqCtx
-                )
-            end
+        service_call(
+            invoice_templating,
+            'Update',
+            [_UserInfo = undefined, InvoiceTemplateID, Params],
+            ReqSt1
         )
     of
-        {ok, InvoiceTpl} ->
-            {ok, {200, #{}, decode_invoice_tpl(InvoiceTpl)}};
+        {ok, InvoiceTemplate} ->
+            reply(200, decode_invoice_tpl(InvoiceTemplate), ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1);
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvoiceTemplateNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1);
                 #payproc_InvoiceTemplateRemoved{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}}
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1)
             end
     catch
         throw:#payproc_InvalidUser{} ->
@@ -735,185 +909,206 @@ process_request('UpdateInvoiceTemplate', Req, Context, ReqCtx) ->
         throw:zero_invoice_lifetime ->
             {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}}
     end;
-process_request('DeleteInvoiceTemplate', Req, Context, ReqCtx) ->
-    InvoiceTplID = maps:get('invoiceTemplateID', Req),
-    UserInfo = get_user_info(Context),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                invoice_templating,
-                'Delete',
-                [UserInfo, InvoiceTplID],
-                ReqCtx
-            )
-        end
+
+process_request('DeleteInvoiceTemplate' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice_template => InvoiceTemplateID}},
+        [{payproc, #{invoice_template => InvoiceTemplateID}}],
+        ReqSt0
+    ),
+    Result = service_call(
+        invoice_templating,
+        'Delete',
+        [_UserInfo = undefined, InvoiceTemplateID],
+        ReqSt1
     ),
     case Result of
-        {ok, _R} ->
-            {ok, {204, #{}, undefined}};
+        {ok, _} ->
+            reply(204, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvoiceTemplateNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1);
                 #payproc_InvoiceTemplateRemoved{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}}
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1)
             end
     end;
-process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx) ->
-    InvoiceTplID = maps:get('invoiceTemplateID', Req),
+
+process_request('CreateInvoiceWithTemplate' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
     InvoiceParams = maps:get('InvoiceParamsWithTemplate', Req),
-    PartyID = get_party_id(Context),
-    try create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, Context, ReqCtx, OperationID) of
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice_template => InvoiceTemplateID}},
+        [{payproc, #{invoice_template => InvoiceTemplateID}}],
+        ReqSt0
+    ),
+    try create_invoice_with_template(PartyID, InvoiceTemplateID, InvoiceParams, OperationID, ReqSt1) of
         {ok, #'payproc_Invoice'{invoice = Invoice}} ->
-            {ok, {201, #{}, make_invoice_and_token(Invoice, PartyID, Context)}};
+            reply(201, make_invoice_and_token(Invoice, PartyID), ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidUser{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1);
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_InvalidShopStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}};
+                    reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1);
                 #payproc_InvoiceTemplateNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1);
                 #payproc_InvoiceTemplateRemoved{} ->
-                    {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
+                    reply_not_found(<<"Invoice Template not found">>, ReqSt1);
                 #payproc_InvoiceTermsViolated{} ->
-                    {ok, {400, #{}, logic_error(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>)}}
+                    reply_bad_request(invoiceTermsViolated, <<"Invoice parameters violate contract terms">>, ReqSt1)
             end
     catch
         throw:{bad_invoice_params, currency_no_amount} ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Amount is required for the currency">>)}};
+            reply_bad_request(invalidRequest, <<"Amount is required for the currency">>, ReqSt1);
         throw:{bad_invoice_params, amount_no_currency} ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Currency is required for the amount">>)}}
+            reply_bad_request(invalidRequest, <<"Currency is required for the amount">>, ReqSt1)
     end;
-process_request('GetInvoicePaymentMethodsByTemplateID', Req, Context, ReqCtx) ->
+
+process_request('GetInvoicePaymentMethodsByTemplateID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
     Timestamp = genlib_rfc3339:format_relaxed(erlang:system_time(millisecond), millisecond),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, invoice_template => InvoiceTemplateID}},
+        [{payproc, #{invoice_template => InvoiceTemplateID}}],
+        ReqSt0
+    ),
     Result = construct_payment_methods(
         invoice_templating,
         [
-            get_user_info(Context),
-            maps:get('invoiceTemplateID', Req),
+            _UserInfo = undefined,
+            InvoiceTemplateID,
             Timestamp
         ],
-        Context,
-        ReqCtx
+        PartyID,
+        ReqSt1
     ),
     case Result of
         {ok, PaymentMethods} when is_list(PaymentMethods) ->
-            {ok, {200, #{}, PaymentMethods}};
+            reply(200, PaymentMethods, ReqSt1);
         {exception, E} when
-            E == #payproc_InvalidUser{}; E == #payproc_InvoiceTemplateNotFound{}; E == #payproc_InvoiceTemplateRemoved{}
+            E == #payproc_InvalidUser{};
+            E == #payproc_InvoiceTemplateNotFound{};
+            E == #payproc_InvoiceTemplateRemoved{}
         ->
-            {ok, {404, #{}, general_error(<<"Invoice template not found">>)}}
+            reply_not_found(<<"Invoice template not found">>, ReqSt1);
+        {error, party_inaccessible} ->
+            reply_not_found(<<"Invoice template not found">>, ReqSt1)
     end;
-process_request('ActivateShop', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
+
+process_request('ActivateShop' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     ShopID = maps:get(shopID, Req),
-
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'ActivateShop',
-                [UserInfo, PartyID, ShopID],
-                ReqCtx
-            )
-        end
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, shop => ShopID}},
+        ReqSt0
     ),
-
+    Result = service_call(
+        party_management,
+        'ActivateShop',
+        [_UserInfo = undefined, PartyID, ShopID],
+        ReqSt1
+    ),
     case Result of
         {ok, _R} ->
-            {ok, {204, #{}, undefined}};
+            reply(204, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_ShopNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Shop not found">>)}};
+                    reply_not_found(<<"Shop not found">>, ReqSt1);
                 #payproc_InvalidShopStatus{
                     status = {suspension, {active, _}}
                 } ->
-                    {ok, {204, #{}, undefined}}
+                    reply(204, undefined, ReqSt1)
             end
     end;
-process_request('SuspendShop', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
+
+process_request('SuspendShop' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     ShopID = maps:get(shopID, Req),
-
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'SuspendShop',
-                [UserInfo, PartyID, ShopID],
-                ReqCtx
-            )
-        end
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, shop => ShopID}},
+        ReqSt0
     ),
-
+    Result = service_call(
+        party_management,
+        'SuspendShop',
+        [_UserInfo = undefined, PartyID, ShopID],
+        ReqSt1
+    ),
     case Result of
         {ok, _R} ->
-            {ok, {204, #{}, undefined}};
+            reply(204, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #payproc_ShopNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"Shop not found">>)}};
+                    reply_not_found(<<"Shop not found">>, ReqSt1);
                 #payproc_InvalidShopStatus{
                     status = {suspension, {suspended, _}}
                 } ->
-                    {ok, {204, #{}, undefined}}
+                    reply(204, undefined, ReqSt1)
             end
     end;
-process_request('GetShops', _Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    {ok, #domain_Party{shops = Shops}} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
-    Resp = decode_shops_map(Shops),
-    {ok, {200, #{}, Resp}};
-process_request('GetShopByID', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    ShopID = maps:get(shopID, Req),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'GetShop',
-                [UserInfo, PartyID, ShopID],
-                ReqCtx
-            )
-        end
-    ),
 
+process_request('GetShops' = OperationID, _Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO
+    % Handle restrictions also.
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID}},
+        ReqSt0
+    ),
+    case get_party(PartyID, ReqSt1) of
+        {ok, #domain_Party{shops = Shops}} ->
+            reply(200, decode_shops_map(Shops), ReqSt1);
+        {exception, _} ->
+            reply(200, [], ReqSt1)
+    end;
+
+process_request('GetShopByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ShopID = maps:get(shopID, Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, shop => ShopID}},
+        ReqSt0
+    ),
+    Result = service_call(
+        party_management,
+        'GetShop',
+        [_UserInfo = undefined, PartyID, ShopID],
+        ReqSt1
+    ),
     case Result of
         {ok, Shop} ->
-            Resp = decode_shop(Shop),
-            {ok, {200, #{}, Resp}};
+            reply(200, decode_shop(Shop), ReqSt1);
         {exception, #payproc_ShopNotFound{}} ->
-            {ok, {404, #{}, general_error(<<"Shop not found">>)}}
+            reply_not_found(<<"Shop not found">>, ReqSt1)
     end;
-process_request('GetReports', Req, Context, ReqCtx) ->
-    PartyID = get_party_id(Context),
+
+process_request('GetReports' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ShopID = maps:get(shopID, Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, shop => ShopID}},
+        ReqSt0
+    ),
     ReportRequest = #reports_ReportRequest{
         party_id = PartyID,
-        shop_id = maps:get(shopID, Req),
+        shop_id = ShopID,
         time_range = #reports_ReportTimeRange{
             from_time = get_time('fromTime', Req),
             to_time = get_time('toTime', Req)
@@ -922,200 +1117,261 @@ process_request('GetReports', Req, Context, ReqCtx) ->
     StatReportRequest = #reports_StatReportRequest{
         request = ReportRequest
     },
-    Result = service_call(reporting, 'GetReports', [StatReportRequest], ReqCtx),
+    Result = service_call(reporting, 'GetReports', [StatReportRequest], ReqSt1),
     case Result of
         {ok, #reports_StatReportResponse{reports = Reports}} ->
             Resp = [decode_report(R) || #reports_Report{status = created} = R <- Reports],
-            {ok, {200, #{}, Resp}};
+            reply(200, Resp, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #reporter_base_InvalidRequest{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #reports_DatasetTooBig{limit = Limit} ->
-                    {ok, {400, #{}, limit_exceeded_error(Limit)}}
+                    reply_bad_request(limitExceeded, io_lib:format("Max limit: ~p", [Limit]), ReqSt1)
             end
     end;
-process_request('DownloadFile', Req, Context, ReqCtx) ->
-    PartyID = get_party_id(Context),
+
+process_request('DownloadFile' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     ShopID = maps:get(shopID, Req),
     ReportID = maps:get(reportID, Req),
     FileID = maps:get(fileID, Req),
-    Result = service_call(reporting, 'GetReport', [ReportID], ReqCtx),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, shop => ShopID, report => ReportID, file => FileID}},
+        [{reporting, #{report => ReportID}}],
+        ReqSt0
+    ),
+    % FIXME
+    Result = service_call(reporting, 'GetReport', [ReportID], ReqSt1),
     case Result of
         {ok, #reports_Report{status = created, files = Files, party_id = PartyID, shop_id = ShopID}} ->
             case lists:keymember(FileID, #reports_FileMeta.file_id, Files) of
                 true ->
-                    generate_report_presigned_url(FileID, ReqCtx);
+                    generate_report_presigned_url(FileID, ReqSt1);
                 false ->
-                    {ok, {404, #{}, general_error(<<"File not found">>)}}
+                    reply_not_found(<<"File not found">>, ReqSt1)
             end;
         {ok, _WrongReport} ->
-            {ok, {404, #{}, general_error(<<"Report not found">>)}};
+            reply_not_found(<<"Report not found">>, ReqSt1);
         {exception, #reports_ReportNotFound{}} ->
-            {ok, {404, #{}, general_error(<<"Report not found">>)}}
+            reply_not_found(<<"Report not found">>, ReqSt1)
     end;
-process_request('GetContracts', _Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
-    {ok, {200, #{}, decode_contracts_map(Party#domain_Party.contracts, Party#domain_Party.contractors)}};
-process_request('GetContractByID', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    ContractID = maps:get('contractID', Req),
 
-    {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
-    case genlib_map:get(ContractID, Party#domain_Party.contracts) of
-        undefined ->
-            {ok, {404, #{}, general_error(<<"Contract not found">>)}};
-        Contract ->
-            {ok, {200, #{}, decode_contract(Contract, Party#domain_Party.contractors)}}
+process_request('GetContracts' = OperationID, _Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO
+    % Handle restrictions also.
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID}},
+        ReqSt0
+    ),
+    case get_party(PartyID, ReqSt1) of
+        {ok, #domain_Party{contracts = Contracts, contractors = Contractors}} ->
+            reply(200, decode_contracts_map(Contracts, Contractors), ReqSt1);
+        {exception, #payproc_InvalidUser{}} ->
+            reply(200, [], ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply(200, [], ReqSt1)
     end;
-process_request('GetPayoutTools', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    ContractID = maps:get('contractID', Req),
 
-    Result = get_contract_by_id(Context, ReqCtx, UserInfo, PartyID, ContractID),
-    case Result of
+process_request('GetContractByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ContractID = maps:get('contractID', Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, contract => ContractID}},
+        ReqSt0
+    ),
+    case get_party(PartyID, ReqSt1) of
+        {ok, #domain_Party{contracts = Contracts, contractors = Contractors}} ->
+            case genlib_map:get(ContractID, Contracts) of
+                undefined ->
+                    reply_not_found(<<"Contract not found">>, ReqSt1);
+                Contract ->
+                    reply(200, decode_contract(Contract, Contractors), ReqSt1)
+            end;
+        {exception, #payproc_InvalidUser{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1)
+    end;
+
+process_request('GetPayoutTools' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ContractID = maps:get('contractID', Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, contract => ContractID}},
+        ReqSt0
+    ),
+    case get_contract_by_id(PartyID, ContractID, ReqSt1) of
         {ok, #domain_Contract{payout_tools = PayoutTools}} ->
-            Resp = [decode_payout_tool(P) || P <- PayoutTools],
-            {ok, {200, #{}, Resp}};
+            reply(200, [decode_payout_tool(P) || P <- PayoutTools], ReqSt1);
         {exception, #payproc_ContractNotFound{}} ->
-            {ok, {404, #{}, general_error(<<"Contract not found">>)}}
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_InvalidUser{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-process_request('GetPayoutToolByID', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
+
+process_request('GetPayoutToolByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     ContractID = maps:get('contractID', Req),
     PayoutToolID = maps:get('payoutToolID', Req),
-
-    Result = get_contract_by_id(Context, ReqCtx, UserInfo, PartyID, ContractID),
-    case Result of
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, contract => ContractID}}, % TODO payout tool id?
+        ReqSt0
+    ),
+    case get_contract_by_id(PartyID, ContractID, ReqSt1) of
         {ok, #domain_Contract{payout_tools = PayoutTools}} ->
             case lists:keyfind(PayoutToolID, #domain_PayoutTool.id, PayoutTools) of
                 #domain_PayoutTool{} = P ->
-                    {ok, {200, #{}, decode_payout_tool(P)}};
+                    reply(200, decode_payout_tool, ReqSt1(P));
                 false ->
-                    {ok, {404, #{}, general_error(<<"PayoutTool not found">>)}}
+                    reply_not_found(<<"PayoutTool not found">>, ReqSt1)
             end;
         {exception, #payproc_ContractNotFound{}} ->
-            {ok, {404, #{}, general_error(<<"Contract not found">>)}}
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_InvalidUser{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-process_request('GetContractAdjustments', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    ContractID = maps:get('contractID', Req),
 
-    Result = get_contract_by_id(Context, ReqCtx, UserInfo, PartyID, ContractID),
-    case Result of
+process_request('GetContractAdjustments' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ContractID = maps:get('contractID', Req),
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, contract => ContractID}},
+        ReqSt0
+    ),
+    case get_contract_by_id(PartyID, ContractID, ReqSt1) of
         {ok, #domain_Contract{adjustments = Adjustments}} ->
-            Resp = [decode_contract_adjustment(A) || A <- Adjustments],
-            {ok, {200, #{}, Resp}};
+            reply(200, [decode_contract_adjustment(A) || A <- Adjustments], ReqSt1);
         {exception, #payproc_ContractNotFound{}} ->
-            {ok, {404, #{}, general_error(<<"Contract not found">>)}}
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_InvalidUser{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-process_request('GetContractAdjustmentByID', Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
+
+process_request('GetContractAdjustmentByID' = OperationID, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     ContractID = maps:get('contractID', Req),
     AdjustmentID = maps:get('adjustmentID', Req),
-
-    Result = get_contract_by_id(Context, ReqCtx, UserInfo, PartyID, ContractID),
-    case Result of
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID, contract => ContractID}}, % TODO contract adjustment id?
+        ReqSt0
+    ),
+    case get_contract_by_id(PartyID, ContractID, ReqSt1) of
         {ok, #domain_Contract{adjustments = Adjustments}} ->
             case lists:keyfind(AdjustmentID, #domain_ContractAdjustment.id, Adjustments) of
                 #domain_ContractAdjustment{} = A ->
-                    {ok, {200, #{}, decode_contract_adjustment(A)}};
+                    reply(200, decode_contract_adjustment(A), ReqSt1);
                 false ->
-                    {ok, {404, #{}, general_error(<<"Adjustment not found">>)}}
+                    reply_not_found(<<"Adjustment not found">>, ReqSt1)
             end;
         {exception, #payproc_ContractNotFound{}} ->
-            {ok, {404, #{}, general_error(<<"Contract not found">>)}}
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_InvalidUser{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-process_request('GetMyParty', _Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
-    Resp = decode_party(Party),
-    {ok, {200, #{}, Resp}};
-process_request('SuspendMyParty', _Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'Suspend',
-                [UserInfo, PartyID],
-                ReqCtx
-            )
-        end
+
+process_request('GetMyParty' = OperationID, _Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID}},
+        ReqSt0
+    ),
+    case get_party(PartyID, ReqSt1) of
+        {ok, Party} ->
+            reply(200, decode_party(Party), ReqSt1)
+    end;
+
+process_request('SuspendMyParty' = OperationID, _Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID}},
+        ReqSt0
+    ),
+    Result = service_call(
+        party_management,
+        'Suspend',
+        [_UserInfo = undefined, PartyID],
+        ReqSt1
     ),
     case Result of
         {ok, _R} ->
-            {ok, {204, #{}, undefined}};
-        {exception, Exception} ->
-            case Exception of
-                #payproc_InvalidPartyStatus{status = {suspension, {suspended, _}}} ->
-                    {ok, {204, #{}, undefined}}
-            end
+            reply(204, undefined, ReqSt1);
+        {exception, #payproc_InvalidPartyStatus{status = {suspension, {suspended, _}}}} ->
+            reply(204, undefined, ReqSt1);
+        % NOTE
+        % This is not correct, yet sufficient for a legacy API.
+        {exception, #payproc_InvalidUser{}} ->
+            reply(204, undefined, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply(204, undefined, ReqSt1)
     end;
-process_request('ActivateMyParty', _Req, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'Activate',
-                [UserInfo, PartyID],
-                ReqCtx
-            )
-        end
+
+process_request('ActivateMyParty' = OperationID, _Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, #{party => PartyID}},
+        ReqSt0
+    ),
+    Result = service_call(
+        party_management,
+        'Activate',
+        [_UserInfo = undefined, PartyID],
+        ReqSt1
     ),
     case Result of
         {ok, _R} ->
-            {ok, {204, #{}, undefined}};
+            reply(204, undefined, ReqSt1);
         {exception, #payproc_InvalidPartyStatus{status = {suspension, {active, _}}}} ->
-            {ok, {204, #{}, undefined}}
+            reply(204, undefined, ReqSt1);
+        % NOTE
+        % This is not correct, yet sufficient for a legacy API.
+        {exception, #payproc_InvalidUser{}} ->
+            reply(204, undefined, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
+            reply(204, undefined, ReqSt1)
     end;
-process_request('GetCategories', _Req, Context, ReqCtx) ->
-    _ = get_user_info(Context),
-    _ = get_party_id(Context),
-    {ok, Categories} = capi_domain:get_categories(ReqCtx),
-    Resp = [decode_category(C) || C <- Categories],
-    {ok, {200, #{}, Resp}};
-process_request('GetCategoryByRef', Req, Context0, ReqCtx) ->
-    _ = get_user_info(Context0),
-    _ = get_party_id(Context0),
+
+process_request('GetCategories' = OperationID, _Req, ReqSt0) ->
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
+    {ok, Categories} = capi_domain:get_categories(ReqSt1#reqst.woody_ctx),
+    reply(200, [decode_category(C) || C <- Categories], ReqSt1);
+
+process_request('GetCategoryByRef' = OperationID, Req, ReqSt0) ->
     CategoryID = maps:get(categoryID, Req),
-    case get_category_by_id(genlib:to_int(CategoryID), ReqCtx) of
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
+    case get_category_by_id(genlib:to_int(CategoryID), ReqSt1) of
         {ok, Category} ->
             Resp = decode_category(Category),
-            {ok, {200, #{}, Resp}};
+            reply(200, Resp, ReqSt1);
         {error, not_found} ->
-            {404, #{}, general_error(<<"Category not found">>)}
+            reply_not_found(<<"Category not found">>, ReqSt1)
     end;
-process_request('GetScheduleByRef', Req, Context, ReqCtx) ->
-    _ = get_user_info(Context),
-    _ = get_party_id(Context),
+
+process_request('GetScheduleByRef' = OperationID, Req, ReqSt0) ->
     ScheduleID = maps:get(scheduleID, Req),
-    case get_schedule_by_id(genlib:to_int(ScheduleID), ReqCtx) of
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
+    case get_schedule_by_id(genlib:to_int(ScheduleID), ReqSt1) of
         {ok, Schedule} ->
-            {ok, {200, #{}, decode_business_schedule(Schedule)}};
+            reply(200, decode_business_schedule, ReqSt1(Schedule));
         {error, not_found} ->
-            {404, #{}, general_error(<<"Schedule not found">>)}
+            reply_not_found(<<"Schedule not found">>, ReqSt1)
     end;
-process_request('GetPaymentInstitutions', Req, _Context, ReqCtx) ->
+
+process_request('GetPaymentInstitutions' = OperationID, Req, ReqSt0) ->
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
     try
         Residence = encode_residence(genlib_map:get(residence, Req)),
         Realm = genlib_map:get(realm, Req),
-        {ok, PaymentInstObjects} = capi_domain:get_payment_institutions(ReqCtx),
+        {ok, PaymentInstObjects} = capi_domain:get_payment_institutions(ReqSt1#reqst.woody_ctx),
         Resp =
             lists:filtermap(
                 fun(P) ->
@@ -1128,58 +1384,70 @@ process_request('GetPaymentInstitutions', Req, _Context, ReqCtx) ->
                 end,
                 PaymentInstObjects
             ),
-        {ok, {200, #{}, Resp}}
+        reply(200, Resp, ReqSt1)
     catch
         throw:{encode_residence, invalid_residence} ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Invalid residence">>)}}
+            reply_bad_request(invalidRequest, <<"Invalid residence">>, ReqSt1)
     end;
-process_request('GetPaymentInstitutionByRef', Req, _Context, ReqCtx) ->
+
+process_request('GetPaymentInstitutionByRef' = OperationID, Req, ReqSt0) ->
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
-    case capi_domain:get({payment_institution, ?payment_institution_ref(PaymentInstitutionID)}, ReqCtx) of
+    PaymentInstitutionRef = {payment_institution, ?payment_institution_ref(PaymentInstitutionID)},
+    case capi_domain:get(PaymentInstitutionRef, ReqSt1#reqst.woody_ctx) of
         {ok, PaymentInstitution} ->
             Resp = decode_payment_institution_obj(PaymentInstitution),
-            {ok, {200, #{}, Resp}};
+            reply(200, Resp, ReqSt1);
         {error, not_found} ->
-            {404, #{}, general_error(<<"Payment institution not found">>)}
+            reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-process_request('GetPaymentInstitutionPaymentTerms', Req, Context, ReqCtx) ->
+
+process_request('GetPaymentInstitutionPaymentTerms' = OperationID, Req, ReqSt0) ->
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
     VS = #payproc_Varset{},
-    case compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) of
+    case compute_payment_institution_terms(PaymentInstitutionID, VS, ReqSt1) of
         {ok, #domain_TermSet{payments = PaymentTerms}} ->
-            Resp = decode_payment_terms(PaymentTerms),
-            {ok, {200, #{}, Resp}};
+            reply(200, decode_payment_terms(PaymentTerms), ReqSt1);
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
-            {404, #{}, general_error(<<"Payment institution not found">>)}
+            reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-process_request('GetPaymentInstitutionPayoutMethods', Req, Context, ReqCtx) ->
+
+process_request('GetPaymentInstitutionPayoutMethods' = OperationID, Req, ReqSt0) ->
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
-    VS = prepare_varset(Req, Context),
-    case compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) of
+    VS = prepare_payment_institution_varset(Req),
+    case compute_payment_institution_terms(PaymentInstitutionID, VS, ReqSt1) of
         {ok, #domain_TermSet{
             payouts = #domain_PayoutsServiceTerms{
                 payout_methods = PayoutMethods
             }
         }} ->
             Resp = decode_payout_methods_selector(PayoutMethods),
-            {ok, {200, #{}, Resp}};
+            reply(200, Resp, ReqSt1);
         {ok, #domain_TermSet{payouts = undefined}} ->
-            {404, #{}, general_error(<<"Automatic payouts not allowed">>)};
+            reply_not_found(<<"Automatic payouts not allowed">>, ReqSt1);
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
-            {404, #{}, general_error(<<"Payment institution not found">>)}
+            reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-process_request('GetPaymentInstitutionPayoutSchedules', Req, Context, ReqCtx) ->
+
+process_request('GetPaymentInstitutionPayoutSchedules' = OperationID, Req, ReqSt0) ->
+    {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
-    VS = prepare_varset(Req, Context),
-    case compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) of
+    VS = prepare_payment_institution_varset(Req),
+    case compute_payment_institution_terms(PaymentInstitutionID, VS, ReqSt1) of
         {ok, #domain_TermSet{payouts = #domain_PayoutsServiceTerms{payout_schedules = Schedules}}} ->
-            {ok, {200, #{}, decode_business_schedules_selector(Schedules)}};
+            reply(200, decode_business_schedules_selector, ReqSt1(Schedules));
         {ok, #domain_TermSet{payouts = undefined}} ->
-            {404, #{}, general_error(<<"Automatic payouts not allowed">>)};
+            reply_not_found(<<"Automatic payouts not allowed">>, ReqSt1);
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
-            {404, #{}, general_error(<<"Payment institution not found">>)}
+            reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-process_request('GetAccountByID', Req, Context, ReqCtx) ->
+
+%% FIXME
+%% There be DRAGONS beneath.
+
+process_request('GetAccountByID' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     AccountID = maps:get('accountID', Req),
@@ -1198,11 +1466,12 @@ process_request('GetAccountByID', Req, Context, ReqCtx) ->
     case Result of
         {ok, S} ->
             Resp = decode_account_state(S),
-            {ok, {200, #{}, Resp}};
+            reply(200, Resp, ReqSt1);
         {exception, #payproc_AccountNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Account not found">>)}}
     end;
-process_request('GetClaims', Req, Context, ReqCtx) ->
+
+process_request('GetClaims' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     ClaimStatus = maps:get('claimStatus', Req),
@@ -1220,7 +1489,8 @@ process_request('GetClaims', Req, Context, ReqCtx) ->
     ),
     Resp = decode_claims(filter_claims(ClaimStatus, Claims)),
     {ok, {200, #{}, Resp}};
-process_request('GetClaimByID', Req, Context, ReqCtx) ->
+
+process_request('GetClaimByID' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     ClaimID = maps:get('claimID', Req),
@@ -1248,7 +1518,8 @@ process_request('GetClaimByID', Req, Context, ReqCtx) ->
         {exception, #payproc_ClaimNotFound{}} ->
             {ok, {404, #{}, general_error(<<"Claim not found">>)}}
     end;
-process_request('CreateClaim', Req, Context, ReqCtx) ->
+
+process_request('CreateClaim' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     try
@@ -1272,23 +1543,24 @@ process_request('CreateClaim', Req, Context, ReqCtx) ->
             {exception, Exception} ->
                 case Exception of
                     #payproc_InvalidPartyStatus{} ->
-                        {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                        reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                     #payproc_ChangesetConflict{} ->
-                        {ok, {400, #{}, logic_error(changesetConflict, <<"Changeset conflict">>)}};
+                        reply_bad_request(changesetConflict, <<"Changeset conflict">>, ReqSt1);
                     #payproc_InvalidChangeset{} ->
-                        {ok, {400, #{}, logic_error(invalidChangeset, <<"Invalid changeset">>)}};
+                        reply_bad_request(invalidChangeset, <<"Invalid changeset">>, ReqSt1);
                     #'InvalidRequest'{errors = Errors} ->
-                        {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}}
+                        reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1)
                 end
         end
     catch
         throw:{encode_contract_modification, adjustment_creation_not_supported} ->
-            {ok, {400, #{}, logic_error(invalidChangeset, <<"Contract adjustment creation not supported">>)}};
+            reply_bad_request(invalidChangeset, <<"Contract adjustment creation not supported">>, ReqSt1);
         throw:{encode_residence, invalid_residence} ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Invalid residence">>)}}
+            reply_bad_request(invalidRequest, <<"Invalid residence">>, ReqSt1)
     end;
+
 % TODO disabled temporary, exception handling must be fixed befor enabling
-% process_request('UpdateClaimByID', Req, Context, ReqCtx) ->
+% process_request('UpdateClaimByID' = OperationID, Req, ReqSt0) ->
 %     UserInfo = get_user_info(Context),
 %     PartyID = get_party_id(Context),
 %     ClaimID = genlib:to_int(maps:get('claimID', Req)),
@@ -1309,7 +1581,7 @@ process_request('CreateClaim', Req, Context, ReqCtx) ->
 %     Resp = decode_party(Party),
 %     {ok, {200, #{}, Resp}};
 
-process_request('RevokeClaimByID', Req, Context, ReqCtx) ->
+process_request('RevokeClaimByID' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     ClaimID = genlib:to_int(maps:get('claimID', Req)),
@@ -1333,16 +1605,17 @@ process_request('RevokeClaimByID', Req, Context, ReqCtx) ->
         {exception, Exception} ->
             case Exception of
                 #payproc_InvalidPartyStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidPartyStatus, <<"Invalid party status">>)}};
+                    reply_bad_request(invalidPartyStatus, <<"Invalid party status">>, ReqSt1);
                 #payproc_ClaimNotFound{} ->
                     {ok, {404, #{}, general_error(<<"Claim not found">>)}};
                 #payproc_InvalidClaimStatus{} ->
-                    {ok, {400, #{}, logic_error(invalidClaimStatus, <<"Invalid claim status">>)}};
+                    reply_bad_request(invalidClaimStatus, <<"Invalid claim status">>, ReqSt1);
                 #payproc_InvalidClaimRevision{} ->
-                    {ok, {400, #{}, logic_error(invalidClaimRevision, <<"Invalid claim revision">>)}}
+                    reply_bad_request(invalidClaimRevision, <<"Invalid claim revision">>, ReqSt1)
             end
     end;
-process_request('CreateWebhook', Req, Context, ReqCtx) ->
+
+process_request('CreateWebhook' = OperationID, Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     WebhookParams = encode_webhook_params(PartyID, maps:get('Webhook', Req)),
     case validate_webhook_params(WebhookParams, Context, ReqCtx) of
@@ -1351,13 +1624,15 @@ process_request('CreateWebhook', Req, Context, ReqCtx) ->
             Resp = decode_webhook(Webhook),
             {ok, {201, #{}, Resp}};
         {exception, #payproc_ShopNotFound{}} ->
-            {ok, {400, #{}, logic_error(invalidShopID, <<"Shop not found">>)}}
+            reply_bad_request(invalidShopID, <<"Shop not found">>, ReqSt1)
     end;
-process_request('GetWebhooks', _Req, Context, ReqCtx) ->
+
+process_request('GetWebhooks' = OperationID, _Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     {ok, Webhooks} = service_call(webhook_manager, 'GetList', [PartyID], ReqCtx),
     {ok, {200, #{}, [decode_webhook(V) || V <- Webhooks]}};
-process_request('GetWebhookByID', Req, Context, ReqCtx) ->
+
+process_request('GetWebhookByID' = OperationID, Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     case encode_webhook_id(maps:get(webhookID, Req)) of
         {ok, WebhookID} ->
@@ -1370,7 +1645,8 @@ process_request('GetWebhookByID', Req, Context, ReqCtx) ->
         error ->
             {ok, {404, #{}, general_error(<<"Webhook not found">>)}}
     end;
-process_request('DeleteWebhookByID', Req, Context, ReqCtx) ->
+
+process_request('DeleteWebhookByID' = OperationID, Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     case encode_webhook_id(maps:get(webhookID, Req)) of
         {ok, WebhookID} ->
@@ -1383,7 +1659,8 @@ process_request('DeleteWebhookByID', Req, Context, ReqCtx) ->
         error ->
             {ok, {404, #{}, general_error(<<"Webhook not found">>)}}
     end;
-process_request('CreateCustomer', Req, Context, ReqCtx) ->
+
+process_request('CreateCustomer' = OperationID, Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     Params = encode_customer_params(PartyID, maps:get('Customer', Req)),
     Result = prepare_party(
@@ -1415,7 +1692,8 @@ process_request('CreateCustomer', Req, Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(operationNotPermitted, <<"Operation not permitted">>)}}
             end
     end;
-process_request('GetCustomerById', Req, _Context, ReqCtx) ->
+
+process_request('GetCustomerById', Req, _ReqSt0) ->
     CustomerID = maps:get('customerID', Req),
     Result = get_customer_by_id(ReqCtx, CustomerID),
     case Result of
@@ -1429,7 +1707,8 @@ process_request('GetCustomerById', Req, _Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-process_request('DeleteCustomer', Req, _Context, ReqCtx) ->
+
+process_request('DeleteCustomer', Req, _ReqSt0) ->
     CustomerID = maps:get(customerID, Req),
     Result = service_call(
         customer_management,
@@ -1452,7 +1731,8 @@ process_request('DeleteCustomer', Req, _Context, ReqCtx) ->
                     {ok, {400, #{}, logic_error(invalidShopStatus, <<"Invalid shop status">>)}}
             end
     end;
-process_request('CreateCustomerAccessToken', Req, Context, ReqCtx) ->
+
+process_request('CreateCustomerAccessToken', Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     CustomerID = maps:get(customerID, Req),
     Result = get_customer_by_id(ReqCtx, CustomerID),
@@ -1468,7 +1748,8 @@ process_request('CreateCustomerAccessToken', Req, Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-process_request('CreateBinding', Req, _Context, ReqCtx) ->
+
+process_request('CreateBinding', Req, _ReqSt0) ->
     CustomerID = maps:get(customerID, Req),
     BindingParams = maps:get('CustomerBindingParams', Req),
     Result =
@@ -1520,7 +1801,8 @@ process_request('CreateBinding', Req, _Context, ReqCtx) ->
                         <<"Specified payment session is invalid">>
                     )}}
     end;
-process_request('GetBindings', Req, _Context, ReqCtx) ->
+
+process_request('GetBindings', Req, _ReqSt0) ->
     CustomerID = maps:get(customerID, Req),
     Result = get_customer_by_id(ReqCtx, CustomerID),
     case Result of
@@ -1534,7 +1816,8 @@ process_request('GetBindings', Req, _Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-process_request('GetBinding', Req, _Context, ReqCtx) ->
+
+process_request('GetBinding', Req, _ReqSt0) ->
     CustomerID = maps:get(customerID, Req),
     BindingID = maps:get(customerBindingID, Req),
     Result = get_customer_by_id(ReqCtx, CustomerID),
@@ -1554,7 +1837,8 @@ process_request('GetBinding', Req, _Context, ReqCtx) ->
                     {ok, {404, #{}, general_error(<<"Customer not found">>)}}
             end
     end;
-process_request('GetCustomerEvents', Req, _Context, ReqCtx) ->
+
+process_request('GetCustomerEvents', Req, _ReqSt0) ->
     CustomerID = maps:get(customerID, Req),
     GetterFun = fun(Range) ->
         service_call(
@@ -1587,47 +1871,104 @@ process_request('GetCustomerEvents', Req, _Context, ReqCtx) ->
             end
     end.
 
-create_invoice(PartyID, InvoiceParams, Context, ReqCtx, BenderPrefix) ->
+-spec authorize_operation(capi_auth:operation_context(), request_state()) ->
+    {capi_auth:resolution(), request_state()} | no_return().
+authorize_operation(OperationContext, ReqSt) ->
+    authorize_operation(OperationContext, [], ReqSt).
+
+-spec authorize_operation(capi_auth:operation_context(), [AdditionalContext], request_state()) ->
+    {capi_auth:resolution(), request_state()} | no_return().
+authorize_operation(
+    OperationContext,
+    AdditionalContext,
+    ReqSt = #reqst{operation_id = OperationID, auth_st = {initialized, Provider}}
+) ->
+    Context = [{operation, OperationContext#{id => OperationID}} | AdditionalContext],
+    Resolution = capi_auth:authorize_operation(Context, Provider),
+    case Resolution of
+        forbidden ->
+            erlang:throw({forbidden, undefined}); % FIXME reason?
+        _ ->
+            {Resolution, ReqSt#reqst{auth_st = completed}}
+    end.
+
+with_woody_result(Name, Result, Map) ->
+    with_woody_result(Name, Result, fun (V) -> V end, Map).
+
+with_woody_result(Name, {ok, Value}, F, Map) ->
+    Map#{Name => F(Value)};
+with_woody_result(_Name, {exception, _}, _, Map) ->
+    Map.
+
+with_maybe(_, undefined, Map) ->
+    Map;
+with_maybe(Name, Value, Map) ->
+    Map#{Name => Value}.
+
+map_woody_result({ok, Value}) ->
+    Value;
+map_woody_result({exception, _}) ->
+    undefined.
+
+reply(Code, Response, ReqSt) ->
+    reply(Code, #{}, Response, ReqSt).
+
+reply(Code, Headers, Response, ReqSt) ->
+    ReqSt#reqst{
+        reply = {Code, Headers, Response}
+    }.
+
+reply_bad_request(Code, Message, ReqSt) ->
+    ReqSt#reqst{
+        reply = {400, #{}, logic_error(Code, Message)}
+    }.
+
+reply_not_found(Message, ReqSt) ->
+    ReqSt#reqst{
+        reply = {404, #{}, general_error(Message)}
+    }.
+
+get_user_id(#reqst{user_id = UserID}) ->
+    UserID.
+
+%%
+
+create_invoice(PartyID, InvoiceParams, BenderPrefix, ReqSt) ->
     IdempotentKey = capi_bender:get_idempotent_key(BenderPrefix, PartyID, undefined),
     Hash = erlang:phash2(InvoiceParams),
-    {ok, ID} = capi_bender:gen_by_snowflake(IdempotentKey, Hash, ReqCtx),
-    UserInfo = get_user_info(Context),
+    {ok, ID} = capi_bender:gen_by_snowflake(IdempotentKey, Hash, ReqSt#reqst.woody_ctx),
     Params = encode_invoice_params(ID, PartyID, InvoiceParams),
-    prepare_party(
-        Context,
-        ReqCtx,
+    create_party_if_missing(
         fun() ->
-            service_call(invoicing, 'Create', [UserInfo, Params], ReqCtx)
-        end
+            service_call(invoicing, 'Create', [undefined, Params], ReqSt)
+        end,
+        ReqSt
     ).
 
-create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, Context, ReqCtx, BenderPrefix) ->
+create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, BenderPrefix, ReqSt) ->
     IdempotentKey = capi_bender:get_idempotent_key(BenderPrefix, PartyID, undefined),
-    UserInfo = get_user_info(Context),
     Hash = erlang:phash2({InvoiceTplID, InvoiceParams}),
-    {ok, ID} = capi_bender:gen_by_snowflake(IdempotentKey, Hash, ReqCtx),
+    {ok, ID} = capi_bender:gen_by_snowflake(IdempotentKey, Hash, ReqSt#reqst.woody_ctx),
     Params = encode_invoice_params_with_tpl(ID, InvoiceTplID, InvoiceParams),
-    prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(invoicing, 'CreateWithTemplate', [UserInfo, Params], ReqCtx)
-        end
-    ).
+    service_call(invoicing, 'CreateWithTemplate', [_UserInfo = undefined, Params], ReqSt).
 
-create_payment(PartyID, InvoiceID, PaymentParams, Context, ReqCtx, BenderPrefix) ->
+create_payment(PartyID, InvoiceID, PaymentParams, BenderPrefix, ReqSt) ->
     IdempotentKey = capi_bender:get_idempotent_key(BenderPrefix, PartyID, undefined),
     Flow = genlib_map:get(<<"flow">>, PaymentParams, #{<<"type">> => <<"PaymentFlowInstant">>}),
     Payer = genlib_map:get(<<"payer">>, PaymentParams),
-    UserInfo = get_user_info(Context),
     Params = #payproc_InvoicePaymentParams{
         payer = encode_payer_params(Payer),
         flow = encode_flow(Flow)
     },
     Hash = erlang:phash2(Params),
-    {ok, ID} = capi_bender:gen_by_sequence(IdempotentKey, InvoiceID, Hash, ReqCtx),
+    {ok, ID} = capi_bender:gen_by_sequence(IdempotentKey, InvoiceID, Hash, ReqSt#reqst.woody_ctx),
     InvoicePaymentParams = Params#payproc_InvoicePaymentParams{id = ID},
-    service_call(invoicing, 'StartPayment', [UserInfo, InvoiceID, InvoicePaymentParams], ReqCtx).
+    service_call(
+        invoicing,
+        'StartPayment',
+        [_UserInfo = undefined, InvoiceID, InvoicePaymentParams],
+        ReqSt
+    ).
 
 check_payment_institution(Realm, Residence, PaymentInstitution) ->
     check_payment_institution_realm(Realm, PaymentInstitution) andalso
@@ -1647,18 +1988,18 @@ check_payment_institution_residence(Residence, #domain_PaymentInstitutionObject{
 }) ->
     ordsets:is_element(Residence, Residences).
 
-generate_report_presigned_url(FileID, ReqCtx) ->
+generate_report_presigned_url(FileID, ReqSt1) ->
     ExpiresAt = get_default_url_lifetime(),
-    Result = service_call(reporting, 'GeneratePresignedUrl', [FileID, ExpiresAt], ReqCtx),
+    Result = service_call(reporting, 'GeneratePresignedUrl', [FileID, ExpiresAt], ReqSt1),
     case Result of
         {ok, URL} ->
-            {ok, {303, #{<<"Location">> => URL}, undefined}};
+            reply(303, #{<<"Location">> => URL}, undefined, ReqSt1);
         {exception, Exception} ->
             case Exception of
                 #'InvalidRequest'{errors = Errors} ->
-                    {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+                    reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1);
                 #reports_FileNotFound{} ->
-                    {ok, {404, #{}, general_error(<<"File not found">>)}}
+                    reply_not_found(<<"File not found">>, ReqSt1)
             end
     end.
 
@@ -1740,10 +2081,10 @@ encode_webhook_scope(#{
 
 %%%
 
-service_call(ServiceName, Function, Args, Context) ->
-    capi_woody_client:call_service(ServiceName, Function, Args, Context).
+service_call(ServiceName, Function, Args, #reqst{woody_ctx = WoodyCtx}) ->
+    capi_woody_client:call_service(ServiceName, Function, Args, WoodyCtx).
 
-create_context(#{'X-Request-ID' := RequestID}, AuthContext) ->
+create_woody_context(#{'X-Request-ID' := RequestID}, AuthContext) ->
     RpcID = #{trace_id := TraceID} = woody_context:new_rpc_id(genlib:to_binary(RequestID)),
     _ = logger:debug("Created TraceID:~p for RequestID:~p", [TraceID, RequestID]),
     WoodyContext = woody_context:new(RpcID),
@@ -1760,31 +2101,19 @@ collect_user_identity(AuthContext) ->
 logic_error(Code, Message) ->
     #{<<"code">> => genlib:to_binary(Code), <<"message">> => genlib:to_binary(Message)}.
 
-limit_exceeded_error(Limit) ->
-    logic_error(<<"limitExceeded">>, io_lib:format("Max limit: ~p", [Limit])).
-
 general_error(Message) ->
     #{<<"message">> => genlib:to_binary(Message)}.
 
-get_user_info(Context) ->
-    #payproc_UserInfo{
-        id = get_party_id(Context),
-        type = {external_user, #payproc_ExternalUser{}}
-    }.
-
-get_event_range() ->
+mk_event_range() ->
     #payproc_EventRange{}.
 
 get_auth_context(#{auth_context := AuthContext}) ->
     AuthContext.
 
-get_party_id(Context) ->
-    capi_auth:get_subject_id(get_auth_context(Context)).
-
-get_party_params(Context) ->
+mk_party_params(ReqCtx) ->
     #payproc_PartyParams{
         contact_info = #domain_PartyContactInfo{
-            email = capi_auth:get_claim(<<"email">>, get_auth_context(Context))
+            email = capi_auth:get_claim(<<"email">>, get_auth_context(ReqCtx))
         }
     }.
 
@@ -1990,13 +2319,13 @@ encode_invoice_tpl_create_params(PartyID, Params) ->
         context = encode_invoice_context(Params)
     }.
 
-encode_invoice_tpl_update_params(Params, InvoiceTplGetter) ->
+encode_invoice_tpl_update_params(Params, InvoiceTemplate) ->
     #payproc_InvoiceTemplateUpdateParams{
         invoice_lifetime = encode_optional_invoice_tpl_lifetime(Params),
         product = genlib_map:get(<<"product">>, Params),
         description = genlib_map:get(<<"description">>, Params),
         context = encode_optional_context(Params),
-        details = encode_optional_details(Params, InvoiceTplGetter)
+        details = encode_optional_details(Params, InvoiceTemplate)
     }.
 
 encode_invoice_tpl_details(#{<<"product">> := Product, <<"cost">> := Cost}) ->
@@ -2028,17 +2357,20 @@ encode_optional_context(Params = #{<<"metadata">> := _}) ->
 encode_optional_context(#{}) ->
     undefined.
 
-encode_optional_details(#{<<"product">> := Product, <<"cost">> := Cost}, _) ->
+encode_optional_details(
+    #{<<"product">> := Product, <<"cost">> := Cost},
+    _
+) ->
     {product, encode_invoice_tpl_product(Product, Cost)};
-encode_optional_details(#{<<"cost">> := Cost}, InvoiceTplGetter) ->
-    #domain_InvoiceTemplate{
-        product = Product
-    } = InvoiceTplGetter(),
+encode_optional_details(
+    #{<<"cost">> := Cost},
+    #domain_InvoiceTemplate{product = Product}
+) ->
     {product, encode_invoice_tpl_product(Product, Cost)};
-encode_optional_details(#{<<"product">> := Product}, InvoiceTplGetter) ->
-    #domain_InvoiceTemplate{
-        details = {product, #domain_InvoiceTemplateProduct{price = Price}}
-    } = InvoiceTplGetter(),
+encode_optional_details(
+    #{<<"product">> := Product},
+    #domain_InvoiceTemplate{details = {product, #domain_InvoiceTemplateProduct{price = Price}}}
+) ->
     {product, #domain_InvoiceTemplateProduct{
         product = Product,
         price = Price,
@@ -2360,49 +2692,46 @@ encode_representative_document(#{<<"representativeDocumentType">> := <<"Articles
 encode_representative_document(#{<<"representativeDocumentType">> := <<"PowerOfAttorney">>} = Document) ->
     {power_of_attorney, encode_legal_agreement(Document)}.
 
-make_invoice_and_token(Invoice, PartyID, Context) ->
+make_invoice_and_token(Invoice, PartyID) ->
     #{
         <<"invoice">> => decode_invoice(Invoice),
         <<"invoiceAccessToken">> => make_invoice_access_token(
             Invoice#domain_Invoice.id,
-            PartyID,
-            Context
+            PartyID
         )
     }.
 
-make_invoice_tpl_and_token(InvoiceTpl, PartyID, Context) ->
+make_invoice_tpl_and_token(InvoiceTpl, PartyID) ->
     #{
         <<"invoiceTemplate">> => decode_invoice_tpl(InvoiceTpl),
         <<"invoiceTemplateAccessToken">> => make_invoice_tpl_access_token(
             InvoiceTpl#domain_InvoiceTemplate.id,
-            PartyID,
-            Context
+            PartyID
         )
     }.
 
-make_customer_and_token(Customer, PartyID, Context) ->
+make_customer_and_token(Customer, PartyID) ->
     #{
         <<"customer">> => decode_customer(Customer),
         <<"customerAccessToken">> => make_customer_access_token(
             Customer#payproc_Customer.id,
-            PartyID,
-            Context
+            PartyID
         )
     }.
 
-make_invoice_access_token(InvoiceID, PartyID, Context) ->
+make_invoice_access_token(InvoiceID, PartyID) ->
     Fun = fun capi_auth:issue_invoice_access_token/3,
-    make_access_token(Fun, InvoiceID, PartyID, Context).
+    make_access_token(Fun, InvoiceID, PartyID).
 
-make_invoice_tpl_access_token(InvoiceTplID, PartyID, Context) ->
+make_invoice_tpl_access_token(InvoiceTplID, PartyID) ->
     Fun = fun capi_auth:issue_invoice_template_access_token/3,
-    make_access_token(Fun, InvoiceTplID, PartyID, Context).
+    make_access_token(Fun, InvoiceTplID, PartyID).
 
-make_customer_access_token(CustomerID, PartyID, Context) ->
+make_customer_access_token(CustomerID, PartyID) ->
     Fun = fun capi_auth:issue_customer_access_token/3,
-    make_access_token(Fun, CustomerID, PartyID, Context).
+    make_access_token(Fun, CustomerID, PartyID).
 
-make_access_token(Fun, ID, PartyID, _Context) ->
+make_access_token(Fun, ID, PartyID) ->
     AdditionalClaims = #{},
     {ok, Token} = Fun(PartyID, ID, AdditionalClaims),
     #{<<"payload">> => Token}.
@@ -2518,24 +2847,16 @@ encode_legacy_payment_tool_token(Token) ->
             erlang:throw(invalid_token)
     end.
 
-encode_optional_refund_cash(Params = #{<<"amount">> := _, <<"currency">> := _}, _) ->
+encode_optional_refund_cash(Params = #{<<"amount">> := _, <<"currency">> := _}, _, _, _) ->
     encode_cash(Params);
-encode_optional_refund_cash(
-    Params = #{<<"amount">> := _},
-    #{
-        req_ctx := ReqCtx,
-        user_info := UserInfo,
-        invoice_id := InvoiceID,
-        payment_id := PaymentID
-    }
-) ->
+encode_optional_refund_cash(Params = #{<<"amount">> := _}, InvoiceID, PaymentID, ReqSt) ->
     {ok, #payproc_InvoicePayment{
         payment = #domain_InvoicePayment{
             cost = #domain_Cash{currency = Currency}
         }
-    }} = get_payment_by_id(ReqCtx, UserInfo, InvoiceID, PaymentID),
+    }} = get_payment_by_id(InvoiceID, PaymentID, ReqSt),
     encode_cash(Params#{<<"currency">> => decode_currency(Currency)});
-encode_optional_refund_cash(_, _) ->
+encode_optional_refund_cash(_, _, _, _) ->
     undefined.
 
 decode_invoice_event(
@@ -3564,11 +3885,11 @@ decode_refund_for_event(
     #domain_InvoicePaymentRefund{cash = undefined} = Refund,
     InvoiceID,
     PaymentID,
-    #{req_ctx := ReqCtx, user_info := UserInfo}
+    ReqSt
 ) ->
     % Need to fix it!
     {ok, #payproc_InvoicePayment{payment = #domain_InvoicePayment{cost = Cash}}} =
-        get_payment_by_id(ReqCtx, UserInfo, InvoiceID, PaymentID),
+        get_payment_by_id(InvoiceID, PaymentID, ReqSt),
     decode_refund(Refund#domain_InvoicePaymentRefund{cash = Cash}).
 
 decode_refund(#domain_InvoicePaymentRefund{
@@ -4525,7 +4846,7 @@ encode_stat_request(Dsl) when is_binary(Dsl) ->
         dsl = Dsl
     }.
 
-create_stat_dsl(StatType, Req, Context) ->
+create_stat_dsl(StatType, Req, PartyID) ->
     FromTime = get_time('fromTime', Req),
     ToTime = get_time('toTime', Req),
     SplitInterval =
@@ -4539,7 +4860,7 @@ create_stat_dsl(StatType, Req, Context) ->
         end,
 
     Query = #{
-        <<"merchant_id">> => get_party_id(Context),
+        <<"merchant_id">> => PartyID,
         <<"shop_id">> => genlib_map:get('shopID', Req),
         <<"from_time">> => FromTime,
         <<"to_time">> => ToTime,
@@ -4547,43 +4868,47 @@ create_stat_dsl(StatType, Req, Context) ->
     },
     create_dsl(StatType, Query, #{}).
 
-process_merchant_stat(StatType, Req, Context, ReqCtx) ->
-    Dsl = create_stat_dsl(StatType, Req, Context),
+process_merchant_stat(OperationID, StatType, Req, ReqSt0) ->
+    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    ShopID = genlib_map:get('shopID', Req),
+    % TODO
+    % Handle restrictions on a set of shops.
+    {allowed, ReqSt1} = authorize_operation(
+        {OperationID, with_maybe(shop, ShopID, #{party => PartyID})},
+        ReqSt0
+    ),
+    Dsl = create_stat_dsl(StatType, Req, PartyID),
     Result = service_call(
         merchant_stat,
         'GetStatistics',
         [encode_stat_request(Dsl)],
-        ReqCtx
+        ReqSt1
     ),
-
-    process_merchant_stat_result(StatType, Result).
+    process_merchant_stat_result(StatType, Result, ReqSt1).
 
 process_merchant_stat_result(
     customers_rate_stat = StatType,
-    {ok, #merchstat_StatResponse{data = {records, Stats}}}
+    {ok, #merchstat_StatResponse{data = {records, Stats}}},
+    ReqSt
 ) ->
-    Resp =
-        case Stats of
-            [] ->
-                #{
-                    <<"uniqueCount">> => 0
-                };
-            [StatResponse] ->
-                decode_stat_info(StatType, StatResponse)
-        end,
-    {ok, {200, #{}, Resp}};
-process_merchant_stat_result(StatType, Result) ->
+    case Stats of
+        [] ->
+            reply(200, #{<<"uniqueCount">> => 0}, ReqSt);
+        [StatResponse] ->
+            reply(200, decode_stat_info(StatType, StatResponse), ReqSt)
+    end;
+process_merchant_stat_result(StatType, Result, ReqSt) ->
     case Result of
         {ok, #merchstat_StatResponse{data = {'records', Stats}}} ->
             Resp = [decode_stat_info(StatType, S) || S <- Stats],
-            {ok, {200, #{}, Resp}};
+            reply(200, Resp, ReqSt);
         {exception, #'InvalidRequest'{errors = Errors}} ->
-            {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+            reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt);
         {exception, #merchstat_BadToken{}} ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Invalid token">>)}}
+            reply_bad_request(invalidRequest, <<"Invalid token">>, ReqSt)
     end.
 
-process_search_request(QueryType, Query, Req, ReqCtx, Opts = #{thrift_fun := ThriftFun}) ->
+process_search_request(QueryType, Query, Req, Opts = #{thrift_fun := ThriftFun}, ReqSt) ->
     Limit = genlib_map:get('limit', Req),
     Offset = genlib_map:get('offset', Req),
     QueryParams = #{
@@ -4595,11 +4920,11 @@ process_search_request(QueryType, Query, Req, ReqCtx, Opts = #{thrift_fun := Thr
         merchant_stat,
         ThriftFun,
         [encode_stat_request(Dsl)],
-        ReqCtx
+        ReqSt
     ),
-    process_search_request_result(QueryType, Result, Opts).
+    process_search_request_result(QueryType, Result, Opts, ReqSt).
 
-process_search_request_result(QueryType, Result, #{decode_fun := DecodeFun}) ->
+process_search_request_result(QueryType, Result, #{decode_fun := DecodeFun}, ReqSt) ->
     case Result of
         {ok, #merchstat_StatResponse{data = {QueryType, Data}, total_count = TotalCount}} ->
             DecodedData = [DecodeFun(D) || D <- Data],
@@ -4607,11 +4932,11 @@ process_search_request_result(QueryType, Result, #{decode_fun := DecodeFun}) ->
                 <<"result">> => DecodedData,
                 <<"totalCount">> => TotalCount
             }),
-            {ok, {200, #{}, Resp}};
+            reply(200, Resp, ReqSt);
         {exception, #'InvalidRequest'{errors = Errors}} ->
-            {ok, {400, #{}, logic_error(invalidRequest, format_request_errors(Errors))}};
+            reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt);
         {exception, #merchstat_BadToken{}} ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Invalid token">>)}}
+            reply_bad_request(invalidRequest, <<"Invalid token">>, ReqSt)
     end.
 
 get_time(Key, Req) ->
@@ -4652,15 +4977,14 @@ process_woody_error(_Source, resource_unavailable, _Details) ->
 process_woody_error(_Source, result_unknown, _Details) ->
     {error, reply_5xx(504)}.
 
-prepare_party(Context, ReqCtx, ServiceCall) ->
-    Result0 = ServiceCall(),
+create_party_if_missing(ServiceCallFun, ReqSt) ->
+    Result0 = ServiceCallFun(),
     case Result0 of
         {exception, #payproc_PartyNotFound{}} ->
-            _ = logger:info("Attempting to create a missing party"),
-            Result1 = create_party(Context, ReqCtx),
-            case Result1 of
+            _ = logger:warning("Attempting to create a missing party"),
+            case create_party(ReqSt) of
                 ok ->
-                    ServiceCall();
+                    ServiceCallFun();
                 Error ->
                     Error
             end;
@@ -4668,15 +4992,18 @@ prepare_party(Context, ReqCtx, ServiceCall) ->
             Result0
     end.
 
-create_party(Context, ReqCtx) ->
-    PartyID = get_party_id(Context),
-    UserInfo = get_user_info(Context),
-    PartyParams = get_party_params(Context),
+create_party(ReqSt) ->
+    % TODO
+    % We're creating party for the authenticated user here, with the same ID.
+    % This is deprecated in favor of organization management which is now responsible for
+    % creating a party.
+    PartyID = ReqSt#reqst.user_id,
+    PartyParams = mk_party_params(ReqSt#reqst.request_ctx),
     Result = service_call(
         party_management,
         'Create',
-        [UserInfo, PartyID, PartyParams],
-        ReqCtx
+        [_UserInfo = undefined, PartyID, PartyParams],
+        ReqSt
     ),
     case Result of
         {ok, _} ->
@@ -4687,67 +5014,89 @@ create_party(Context, ReqCtx) ->
             Error
     end.
 
-get_invoice_by_id(ReqCtx, UserInfo, InvoiceID) ->
-    EventRange = get_event_range(),
+get_invoice_by_id(InvoiceID, ReqSt) ->
+    EventRange = mk_event_range(),
     service_call(
         invoicing,
         'Get',
-        [UserInfo, InvoiceID, EventRange],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID, EventRange],
+        ReqSt
     ).
 
-get_customer_by_id(ReqCtx, CustomerID) ->
-    EventRange = get_event_range(),
+find_payment_by_id(PaymentID, #payproc_Invoice{payments = Payments}) ->
+    DropFun = fun(#payproc_InvoicePayment{payment = Payment}) ->
+        Payment#domain_InvoicePayment.id == PaymentID
+    end,
+    case lists:dropwhile(DropFun, genlib:define(Payments, [])) of
+        [Payment | _] ->
+            Payment;
+        [] ->
+            undefined
+    end.
+
+find_refund_by_id(RefundID, #payproc_InvoicePayment{refunds = Refunds}) ->
+    DropFun = fun(#payproc_InvoicePaymentRefund{refund = Refund}) ->
+        Refund#domain_InvoicePaymentRefund.id == RefundID
+    end,
+    case lists:dropwhile(DropFun, genlib:define(Refunds, [])) of
+        [Payment | _] ->
+            Payment;
+        [] ->
+            undefined
+    end.
+
+get_customer_by_id(CustomerID, ReqSt) ->
+    EventRange = mk_event_range(),
     service_call(
         customer_management,
         'Get',
         [CustomerID, EventRange],
-        ReqCtx
+        ReqSt
     ).
 
-get_invoice_tpl(InvoiceTplID, UserInfo, ReqCtx, Context) ->
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID)
-        end
-    ),
-    case Result of
+get_invoice_tpl(InvoiceTplID, ReqSt) ->
+    case get_invoice_tpl_by_id(InvoiceTplID, ReqSt) of
         {ok, InvoiceTpl} ->
             InvoiceTpl;
         {exception, Exception} ->
             throw(Exception)
     end.
 
-get_invoice_tpl_by_id(ReqCtx, UserInfo, InvoiceTplID) ->
+get_invoice_tpl_by_id(InvoiceTplID, ReqSt) ->
     service_call(
         invoice_templating,
         'Get',
-        [UserInfo, InvoiceTplID],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceTplID],
+        ReqSt
     ).
 
-get_payment_by_id(ReqCtx, UserInfo, InvoiceID, PaymentID) ->
+get_payment_by_id(InvoiceID, PaymentID, ReqSt) ->
     service_call(
         invoicing,
         'GetPayment',
-        [UserInfo, InvoiceID, PaymentID],
-        ReqCtx
+        [_UserInfo = undefined, InvoiceID, PaymentID],
+        ReqSt
     ).
 
-get_my_party(Context, ReqCtx, UserInfo, PartyID) ->
-    prepare_party(
-        Context,
-        ReqCtx,
+get_party(PartyID, ReqSt) ->
+    create_party_if_missing(
         fun() ->
             service_call(
                 party_management,
                 'Get',
-                [UserInfo, PartyID],
-                ReqCtx
+                [_UserInfo = undefined, PartyID],
+                ReqSt
             )
-        end
+        end,
+        ReqSt
+    ).
+
+get_party_revision(PartyID, ReqSt) ->
+    service_call(
+        party_management,
+        'GetGetRevision',
+        [_UserInfo = undefined, PartyID],
+        ReqSt
     ).
 
 delete_webhook(PartyID, WebhookID, ReqCtx) ->
@@ -4758,27 +5107,21 @@ delete_webhook(PartyID, WebhookID, ReqCtx) ->
             Exception
     end.
 
-get_contract_by_id(Context, ReqCtx, UserInfo, PartyID, ContractID) ->
-    prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'GetContract',
-                [UserInfo, PartyID, ContractID],
-                ReqCtx
-            )
-        end
+get_contract_by_id(PartyID, ContractID, ReqSt) ->
+    service_call(
+        party_management,
+        'GetContract',
+        [_UserInfo = undefined, PartyID, ContractID],
+        ReqSt
     ).
 
-get_category_by_id(CategoryID, ReqCtx) ->
+get_category_by_id(CategoryID, ReqSt) ->
     CategoryRef = {category, #domain_CategoryRef{id = CategoryID}},
-    capi_domain:get(CategoryRef, ReqCtx).
+    capi_domain:get(CategoryRef, ReqSt#reqst.woody_ctx).
 
-get_schedule_by_id(ScheduleID, ReqCtx) ->
+get_schedule_by_id(ScheduleID, ReqSt) ->
     Ref = {business_schedule, #domain_BusinessScheduleRef{id = ScheduleID}},
-    capi_domain:get(Ref, ReqCtx).
+    capi_domain:get(Ref, ReqSt#reqst.woody_ctx).
 
 collect_events(Limit, After, GetterFun, DecodeFun, DecodingContext) ->
     collect_events([], Limit, After, GetterFun, DecodeFun, DecodingContext).
@@ -4834,23 +5177,23 @@ get_events(Limit, After, GetterFun) ->
     },
     GetterFun(EventRange).
 
-construct_payment_methods(ServiceName, Args, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    PartyID = get_party_id(Context),
-    {ok, Party} = get_my_party(Context, ReqCtx, UserInfo, PartyID),
-    Revision = Party#domain_Party.revision,
-    PartyRevisionParams = {revision, Revision},
-    case compute_terms(ServiceName, Args ++ [PartyRevisionParams], ReqCtx) of
-        {ok, #domain_TermSet{payments = undefined}} ->
-            {ok, []};
-        {ok, #domain_TermSet{
-            payments = #domain_PaymentsServiceTerms{
-                payment_methods = PaymentMethodRefs
-            }
-        }} ->
-            {ok, decode_payment_methods(PaymentMethodRefs)};
-        Error ->
-            Error
+construct_payment_methods(ServiceName, Args, PartyID, ReqSt) ->
+    case get_party_revision(PartyID, ReqSt) of
+        {ok, Revision} ->
+            case compute_terms(ServiceName, Args ++ [{revision, Revision}], ReqSt) of
+                {ok, #domain_TermSet{payments = undefined}} ->
+                    {ok, []};
+                {ok, #domain_TermSet{
+                    payments = #domain_PaymentsServiceTerms{
+                        payment_methods = PaymentMethodRefs
+                    }
+                }} ->
+                    {ok, decode_payment_methods(PaymentMethodRefs)};
+                Error ->
+                    Error
+            end;
+        {exception, _} ->
+            {error, party_inaccessible}
     end.
 
 decode_payment_methods(undefined) ->
@@ -4917,13 +5260,8 @@ decode_tokenized_bank_card(TokenProvider, PaymentSystems) ->
         <<"tokenProviders">> => [genlib:to_binary(TokenProvider)]
     }.
 
-compute_terms(ServiceName, Args, Context) ->
-    service_call(
-        ServiceName,
-        'ComputeTerms',
-        Args,
-        Context
-    ).
+compute_terms(ServiceName, Args, ReqSt) ->
+    service_call(ServiceName, 'ComputeTerms', Args, ReqSt).
 
 reply_5xx(Code) when Code >= 500 andalso Code < 600 ->
     {Code, #{}, <<>>}.
@@ -4964,29 +5302,23 @@ get_default_url_lifetime() ->
     Lifetime = application:get_env(capi, reporter_url_lifetime, ?DEFAULT_URL_LIFETIME),
     genlib_rfc3339:format(Now + Lifetime, second).
 
-compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) ->
-    UserInfo = get_user_info(Context),
-    prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'ComputePaymentInstitutionTerms',
-                [UserInfo, ?payment_institution_ref(PaymentInstitutionID), VS],
-                ReqCtx
-            )
-        end
+compute_payment_institution_terms(PaymentInstitutionID, VS, ReqSt) ->
+    service_call(
+        party_management,
+        'ComputePaymentInstitutionTerms',
+        [_UserInfo = undefined, ?payment_institution_ref(PaymentInstitutionID), VS],
+        ReqSt
     ).
 
-prepare_varset(Req, Context) ->
+prepare_payment_institution_varset(Req) ->
     Currency = encode_optional_currency(genlib_map:get(currency, Req)),
     PayoutMethod = encode_optional_payout_method(genlib_map:get(payoutMethod, Req)),
-    PartyID = get_party_id(Context),
     #payproc_Varset{
         currency = Currency,
-        payout_method = PayoutMethod,
-        party_id = PartyID
+        payout_method = PayoutMethod
+        % NOTE
+        % No more party id here, we can't depend on party id when dealing with payment institutions.
+        % party_id = PartyID
     }.
 
 merge_and_compact(M1, M2) ->
