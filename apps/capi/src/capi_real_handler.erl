@@ -811,15 +811,10 @@ process_request('CreateInvoiceTemplate' = OperationID, Req, ReqSt0) ->
     ),
     try
         Params = encode_invoice_tpl_create_params(PartyID, InvoiceTemplateParams),
-        create_party_if_missing(
-            fun() ->
-                service_call(
-                    invoice_templating,
-                    'Create',
-                    [_UserInfo = undefined, Params],
-                    ReqSt1
-                )
-            end,
+        service_call(
+            invoice_templating,
+            'Create',
+            [_UserInfo = undefined, Params],
             ReqSt1
         )
     of
@@ -1285,7 +1280,7 @@ process_request('GetMyParty' = OperationID, _Req, ReqSt0) ->
         {OperationID, #{party => PartyID}},
         ReqSt0
     ),
-    case get_party(PartyID, ReqSt1) of
+    case get_my_party(PartyID, ReqSt1) of
         {ok, Party} ->
             reply(200, decode_party(Party), ReqSt1)
     end;
@@ -1451,17 +1446,11 @@ process_request('GetAccountByID' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     AccountID = maps:get('accountID', Req),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'GetAccountState',
-                [UserInfo, PartyID, genlib:to_int(AccountID)],
-                ReqCtx
-            )
-        end
+    Result = service_call(
+        party_management,
+        'GetAccountState',
+        [UserInfo, PartyID, genlib:to_int(AccountID)],
+        ReqCtx
     ),
     case Result of
         {ok, S} ->
@@ -1475,17 +1464,11 @@ process_request('GetClaims' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     ClaimStatus = maps:get('claimStatus', Req),
-    {ok, Claims} = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'GetClaims',
-                [UserInfo, PartyID],
-                ReqCtx
-            )
-        end
+    {ok, Claims} = service_call(
+        party_management,
+        'GetClaims',
+        [UserInfo, PartyID],
+        ReqCtx
     ),
     Resp = decode_claims(filter_claims(ClaimStatus, Claims)),
     {ok, {200, #{}, Resp}};
@@ -1494,17 +1477,11 @@ process_request('GetClaimByID' = OperationID, Req, ReqSt0) ->
     UserInfo = get_user_info(Context),
     PartyID = get_party_id(Context),
     ClaimID = maps:get('claimID', Req),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'GetClaim',
-                [UserInfo, PartyID, genlib:to_int(ClaimID)],
-                ReqCtx
-            )
-        end
+    Result = service_call(
+        party_management,
+        'GetClaim',
+        [UserInfo, PartyID, genlib:to_int(ClaimID)],
+        ReqCtx
     ),
     case Result of
         {ok, Claim} ->
@@ -1524,17 +1501,11 @@ process_request('CreateClaim' = OperationID, Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     try
         Changeset = encode_claim_changeset(maps:get('ClaimChangeset', Req), ReqCtx),
-        Result = prepare_party(
-            Context,
-            ReqCtx,
-            fun() ->
-                service_call(
-                    party_management,
-                    'CreateClaim',
-                    [UserInfo, PartyID, Changeset],
-                    ReqCtx
-                )
-            end
+        Result = service_call(
+            party_management,
+            'CreateClaim',
+            [UserInfo, PartyID, Changeset],
+            ReqCtx
         ),
         case Result of
             {ok, Claim} ->
@@ -1566,17 +1537,11 @@ process_request('CreateClaim' = OperationID, Req, ReqSt0) ->
 %     ClaimID = genlib:to_int(maps:get('claimID', Req)),
 %     ClaimRevision = genlib:to_int(maps:get('claimRevision', Req)),
 %     Changeset = encode_claim_changeset(maps:get('claimChangeset', Req)),
-%     {ok, Party} = prepare_party(
-%         Context,
-%         ReqCtx,
-%         fun () ->
-%             service_call(
-%                 party_management,
-%                 'UpdateClaim',
-%                 [UserInfo, PartyID, ClaimID, ClaimRevision, Changeset],
-%                 ReqCtx
-%             )
-%         end
+%     {ok, Party} = service_call(
+%         party_management,
+%         'UpdateClaim',
+%         [UserInfo, PartyID, ClaimID, ClaimRevision, Changeset],
+%         ReqCtx
 %     ),
 %     Resp = decode_party(Party),
 %     {ok, {200, #{}, Resp}};
@@ -1587,17 +1552,11 @@ process_request('RevokeClaimByID' = OperationID, Req, ReqSt0) ->
     ClaimID = genlib:to_int(maps:get('claimID', Req)),
     ClaimRevision = genlib:to_int(maps:get('claimRevision', Req)),
     Reason = encode_reason(maps:get('Reason', Req)),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'RevokeClaim',
-                [UserInfo, PartyID, ClaimID, ClaimRevision, Reason],
-                ReqCtx
-            )
-        end
+    Result = service_call(
+        party_management,
+        'RevokeClaim',
+        [UserInfo, PartyID, ClaimID, ClaimRevision, Reason],
+        ReqCtx
     ),
     case Result of
         {ok, _} ->
@@ -1663,19 +1622,7 @@ process_request('DeleteWebhookByID' = OperationID, Req, ReqSt0) ->
 process_request('CreateCustomer' = OperationID, Req, ReqSt0) ->
     PartyID = get_party_id(Context),
     Params = encode_customer_params(PartyID, maps:get('Customer', Req)),
-    Result = prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                customer_management,
-                'Create',
-                [Params],
-                ReqCtx
-            )
-        end
-    ),
-    case Result of
+    case service_call(customer_management, 'Create', [Params], ReqCtx) of
         {ok, Customer} ->
             {ok, {201, #{}, make_customer_and_token(Customer, PartyID, Context)}};
         {exception, Exception} ->
@@ -1938,12 +1885,7 @@ create_invoice(PartyID, InvoiceParams, BenderPrefix, ReqSt) ->
     Hash = erlang:phash2(InvoiceParams),
     {ok, ID} = capi_bender:gen_by_snowflake(IdempotentKey, Hash, ReqSt#reqst.woody_ctx),
     Params = encode_invoice_params(ID, PartyID, InvoiceParams),
-    create_party_if_missing(
-        fun() ->
-            service_call(invoicing, 'Create', [undefined, Params], ReqSt)
-        end,
-        ReqSt
-    ).
+    service_call(invoicing, 'Create', [_UserInfo = undefined, Params], ReqSt).
 
 create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, BenderPrefix, ReqSt) ->
     IdempotentKey = capi_bender:get_idempotent_key(BenderPrefix, PartyID, undefined),
@@ -2014,17 +1956,11 @@ validate_event_filter({customer, #webhooker_CustomerEventFilter{shop_id = ShopID
 validate_event_filter_shop(ShopID, Context, ReqCtx) when ShopID /= undefined ->
     PartyID = get_party_id(Context),
     UserInfo = get_user_info(Context),
-    prepare_party(
-        Context,
-        ReqCtx,
-        fun() ->
-            service_call(
-                party_management,
-                'GetShop',
-                [UserInfo, PartyID, ShopID],
-                ReqCtx
-            )
-        end
+    service_call(
+        party_management,
+        'GetShop',
+        [UserInfo, PartyID, ShopID],
+        ReqCtx
     ).
 
 get_webhook(PartyID, WebhookID, ReqCtx) ->
@@ -2109,13 +2045,6 @@ mk_event_range() ->
 
 get_auth_context(#{auth_context := AuthContext}) ->
     AuthContext.
-
-mk_party_params(ReqCtx) ->
-    #payproc_PartyParams{
-        contact_info = #domain_PartyContactInfo{
-            email = capi_auth:get_claim(<<"email">>, get_auth_context(ReqCtx))
-        }
-    }.
 
 encode_invoice_params(ID, PartyID, InvoiceParams) ->
     Amount = genlib_map:get(<<"amount">>, InvoiceParams),
@@ -4977,43 +4906,6 @@ process_woody_error(_Source, resource_unavailable, _Details) ->
 process_woody_error(_Source, result_unknown, _Details) ->
     {error, reply_5xx(504)}.
 
-create_party_if_missing(ServiceCallFun, ReqSt) ->
-    Result0 = ServiceCallFun(),
-    case Result0 of
-        {exception, #payproc_PartyNotFound{}} ->
-            _ = logger:warning("Attempting to create a missing party"),
-            case create_party(ReqSt) of
-                ok ->
-                    ServiceCallFun();
-                Error ->
-                    Error
-            end;
-        _ ->
-            Result0
-    end.
-
-create_party(ReqSt) ->
-    % TODO
-    % We're creating party for the authenticated user here, with the same ID.
-    % This is deprecated in favor of organization management which is now responsible for
-    % creating a party.
-    PartyID = ReqSt#reqst.user_id,
-    PartyParams = mk_party_params(ReqSt#reqst.request_ctx),
-    Result = service_call(
-        party_management,
-        'Create',
-        [_UserInfo = undefined, PartyID, PartyParams],
-        ReqSt
-    ),
-    case Result of
-        {ok, _} ->
-            ok;
-        {exception, #payproc_PartyExists{}} ->
-            ok;
-        Error ->
-            Error
-    end.
-
 get_invoice_by_id(InvoiceID, ReqSt) ->
     EventRange = mk_event_range(),
     service_call(
@@ -5078,16 +4970,36 @@ get_payment_by_id(InvoiceID, PaymentID, ReqSt) ->
         ReqSt
     ).
 
+create_party(PartyID, ReqSt = #reqst{request_ctx = ReqCtx}) ->
+    % TODO
+    % We're creating party for the authenticated user here, with the same ID.
+    % This is deprecated in favor of organization management which is now responsible for
+    % creating a party.
+    PartyParams = #payproc_PartyParams{
+        contact_info = #domain_PartyContactInfo{
+            email = capi_auth:get_claim(<<"email">>, get_auth_context(ReqCtx))
+        }
+    },
+    Result = service_call(
+        party_management,
+        'Create',
+        [_UserInfo = undefined, PartyID, PartyParams],
+        ReqSt
+    ),
+    case Result of
+        {ok, _} ->
+            ok;
+        {exception, #payproc_PartyExists{}} ->
+            ok;
+        Error ->
+            Error
+    end.
+
 get_party(PartyID, ReqSt) ->
-    create_party_if_missing(
-        fun() ->
-            service_call(
-                party_management,
-                'Get',
-                [_UserInfo = undefined, PartyID],
-                ReqSt
-            )
-        end,
+    service_call(
+        party_management,
+        'Get',
+        [_UserInfo = undefined, PartyID],
         ReqSt
     ).
 
@@ -5098,6 +5010,22 @@ get_party_revision(PartyID, ReqSt) ->
         [_UserInfo = undefined, PartyID],
         ReqSt
     ).
+
+get_my_party(PartyID, ReqSt) ->
+    Result0 = get_party(PartyID, ReqSt),
+    case Result0 of
+        {exception, #payproc_PartyNotFound{}} ->
+            _ = logger:warning("Attempting to create a missing party"),
+            Result1 = create_party(PartyID, ReqSt),
+            case Result1 of
+                ok ->
+                    get_party(PartyID, ReqSt);
+                Error ->
+                    Error
+            end;
+        _ ->
+            Result0
+    end.
 
 delete_webhook(PartyID, WebhookID, ReqCtx) ->
     case get_webhook(PartyID, WebhookID, ReqCtx) of

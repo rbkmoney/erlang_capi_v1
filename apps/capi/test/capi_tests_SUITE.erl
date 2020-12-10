@@ -1184,7 +1184,6 @@ search_invoices_ok_test(Config) ->
         {bankCardPaymentSystem, <<"visa">>},
         {paymentAmount, 10000}
     ],
-
     {ok, _, _} = capi_client_searches:search_invoices(?config(context, Config), ?STRING, Query).
 
 -spec search_payments_ok_test(config()) -> _.
@@ -1205,12 +1204,19 @@ search_payments_ok_test(Config) ->
         {payerFingerprint, <<"blablablalbalbal">>},
         % {lastDigits, <<"2222">>}, %%@FIXME cannot be used until getting the newest api client
         % {bin, <<"424242">>},
-        {bankCardTokenProvider, <<"applepay">>},
         {bankCardPaymentSystem, <<"visa">>},
         {paymentAmount, 10000}
     ],
-
-    {ok, _, _} = capi_client_searches:search_payments(?config(context, Config), ?STRING, Query).
+    QueryApple = lists:keystore(bankCardTokenProvider, 1, Query, {bankCardTokenProvider, <<"applepay">>}),
+    QueryYandex = lists:keystore(bankCardTokenProvider, 1, Query, {bankCardTokenProvider, <<"yandexpay">>}),
+    ?assertMatch(
+        {ok, _, _},
+        capi_client_searches:search_payments(?config(context, Config), ?STRING, QueryApple)
+    ),
+    ?assertMatch(
+        {ok, _, _},
+        capi_client_searches:search_payments(?config(context, Config), ?STRING, QueryYandex)
+    ).
 
 -spec search_payouts_ok_test(config()) -> _.
 search_payouts_ok_test(Config) ->
