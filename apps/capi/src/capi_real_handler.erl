@@ -1356,7 +1356,7 @@ process_request('GetScheduleByRef' = OperationID, Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation({OperationID, #{}}, ReqSt0),
     case get_schedule_by_id(genlib:to_int(ScheduleID), ReqSt1) of
         {ok, Schedule} ->
-            reply(200, decode_business_schedule, ReqSt1(Schedule));
+            reply(200, decode_business_schedule(Schedule), ReqSt1);
         {error, not_found} ->
             reply_not_found(<<"Schedule not found">>, ReqSt1)
     end;
@@ -1432,7 +1432,7 @@ process_request('GetPaymentInstitutionPayoutSchedules' = OperationID, Req, ReqSt
     VS = prepare_payment_institution_varset(Req),
     case compute_payment_institution_terms(PaymentInstitutionID, VS, ReqSt1) of
         {ok, #domain_TermSet{payouts = #domain_PayoutsServiceTerms{payout_schedules = Schedules}}} ->
-            reply(200, decode_business_schedules_selector, ReqSt1(Schedules));
+            reply(200, decode_business_schedules_selector(Schedules), ReqSt1);
         {ok, #domain_TermSet{payouts = undefined}} ->
             reply_not_found(<<"Automatic payouts not allowed">>, ReqSt1);
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
