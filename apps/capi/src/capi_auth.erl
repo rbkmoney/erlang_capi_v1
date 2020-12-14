@@ -39,7 +39,7 @@
 authorize_api_key(OperationID, ApiKey) ->
     case parse_api_key(ApiKey) of
         {ok, {Type, Credentials}} ->
-            case authorize_api_key(OperationID, Type, Credentials) of
+            case authorize_api_key_type(Type, Credentials) of
                 {ok, Context} ->
                     {true, Context};
                 {error, Error} ->
@@ -64,12 +64,11 @@ parse_api_key(ApiKey) ->
             {error, unsupported_auth_scheme}
     end.
 
--spec authorize_api_key(
-    OperationID :: swag_server:operation_id(),
+-spec authorize_api_key_type(
     Type :: atom(),
     Credentials :: binary()
 ) -> {ok, Context :: context()} | {error, Reason :: atom()}.
-authorize_api_key(_OperationID, bearer, Token) ->
+authorize_api_key_type(bearer, Token) ->
     % NOTE
     % We are knowingly delegating actual request authorization to the logic handler
     % so we could gather more data to perform fine-grained access control.
