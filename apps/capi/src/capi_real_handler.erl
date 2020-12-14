@@ -5034,7 +5034,7 @@ get_my_party(PartyID, ReqSt) ->
     Result0 = get_party(PartyID, ReqSt),
     case Result0 of
         {exception, #payproc_PartyNotFound{}} ->
-            _ = logger:warning("Attempting to create a missing party"),
+            _ = logger:warning("Attempting to create a missing party: ~s", [PartyID]),
             Result1 = create_party(PartyID, ReqSt),
             case Result1 of
                 ok ->
