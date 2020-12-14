@@ -271,18 +271,18 @@ verify(Token) ->
 
 verify(KID, Alg, ExpandedToken) ->
     case get_key_by_kid(KID) of
-        #{name := Keyname, jwk := JWK, verifier := Algs} ->
+        #{jwk := JWK, verifier := Algs, metadata := Metadata} ->
             _ = lists:member(Alg, Algs) orelse throw(invalid_operation),
-            verify_with_key(Keyname, JWK, ExpandedToken);
+            verify_with_key(JWK, ExpandedToken, Metadata);
         undefined ->
             {error, {nonexistent_key, KID}}
     end.
 
-verify_with_key(Keyname, JWK, ExpandedToken) ->
+verify_with_key(JWK, ExpandedToken, Metadata) ->
     case jose_jwt:verify(JWK, ExpandedToken) of
         {true, #jose_jwt{fields = Claims}, _JWS} ->
             _ = validate_claims(Claims, get_validators()),
-            {ok, {Claims, #{keyname => Keyname}}};
+            {ok, {Claims, Metadata}};
         {false, _JWT, _JWS} ->
             {error, invalid_signature}
     end.
