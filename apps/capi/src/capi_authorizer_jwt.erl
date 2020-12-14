@@ -14,6 +14,8 @@
 -export([get_token_id/1]).
 -export([get_subject_id/1]).
 -export([set_subject_id/2]).
+-export([get_subject_email/1]).
+-export([set_subject_email/2]).
 -export([get_expires_at/1]).
 -export([set_expires_at/2]).
 -export([get_acl/1]).
@@ -321,6 +323,7 @@ check_presence(C, undefined) ->
 
 -define(CLAIM_TOKEN_ID, <<"jti">>).
 -define(CLAIM_SUBJECT_ID, <<"sub">>).
+-define(CLAIM_SUBJECT_EMAIL, <<"email">>).
 -define(CLAIM_EXPIRES_AT, <<"exp">>).
 -define(CLAIM_ACCESS, <<"resource_access">>).
 
@@ -339,6 +342,17 @@ get_subject_id(#{?CLAIM_SUBJECT_ID := Value}) ->
 set_subject_id(SubjectID, Claims) ->
     false = maps:is_key(?CLAIM_SUBJECT_ID, Claims),
     Claims#{?CLAIM_SUBJECT_ID => SubjectID}.
+
+-spec get_subject_email(claims()) ->
+    binary().
+get_subject_email(#{?CLAIM_SUBJECT_EMAIL := Value}) ->
+    Value.
+
+-spec set_subject_email(binary(), claims()) ->
+    claims().
+set_subject_email(SubjectID, Claims) ->
+    false = maps:is_key(?CLAIM_SUBJECT_EMAIL, Claims),
+    Claims#{?CLAIM_SUBJECT_EMAIL => SubjectID}.
 
 -spec get_expires_at(claims()) ->
     expiration().
