@@ -124,7 +124,7 @@ make_auth_expiration(unlimited) ->
 
 authorize_operation_legacy(Context, ACL) ->
     % FIXME error case?
-    case lists:keyfind(operation, Context) of
+    case lists:keyfind(operation, 1, Context) of
         {operation, #{id := OperationID} = OperationContext} ->
             authorize_acl(OperationID, OperationContext, ACL)
     end.
