@@ -60,7 +60,7 @@ map_error(validation_error, Error) ->
     {initialized, capi_auth:provider()} |
     completed.
 
--type reply() :: {Code :: 200..499, Headers :: #{}, Response :: #{}}.
+-type reply() :: {Code :: 200..499, Headers :: #{}, Response :: jsx:json_term() | undefined}.
 
 -record(reqst, {
     operation_id :: swag_server:operation_id(),
@@ -68,7 +68,7 @@ map_error(validation_error, Error) ->
     auth_st :: auth_state(),
     request_ctx :: swag_server:request_context(),
     woody_ctx :: woody_context:ctx(),
-    reply :: reply()
+    reply :: reply() | undefined
 }).
 
 -type request_state() :: #reqst{}.
@@ -84,7 +84,12 @@ handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
     try
         AuthCtx = get_auth_context(ReqCtx),
         WoodyCtx = create_woody_context(Req, AuthCtx),
-        AuthProvider = capi_auth:init_provider(ReqCtx, WoodyCtx),
+        AuthProvider = case capi_auth:init_provider(ReqCtx, WoodyCtx) of
+            {ok, Result} ->
+                Result;
+            Error ->
+                throw({forbidden, Error})
+        end,
         ReqSt1 = #reqst{
             operation_id = OperationID,
             user_id = capi_auth:get_subject_id(AuthCtx),
@@ -93,8 +98,8 @@ handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
             woody_ctx = WoodyCtx
         },
         ReqSt2 = process_request(OperationID, Req, ReqSt1),
-        ok = assert_auth_completed(OperationID, ReqSt2),
-        {ok, assert_reply(OperationID, ReqSt2)}
+        ok = assert_auth_completed(ReqSt2),
+        assert_reply(ReqSt2)
     catch
         throw:{forbidden, Reason} ->
             _ = logger:info("Operation ~p authorization failed due to: ~p", [OperationID, Reason]),
@@ -106,14 +111,18 @@ handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
             process_woody_error(Source, Class, Details)
     end.
 
-assert_auth_completed(_OperationID, #reqst{auth_st = completed}) ->
+-spec assert_auth_completed(request_state()) ->
+    ok | no_return().
+assert_auth_completed(#reqst{auth_st = completed}) ->
     ok;
-assert_auth_completed(OperationID, #reqst{auth_st = AuthSt}) ->
+assert_auth_completed(#reqst{auth_st = AuthSt, operation_id = OperationID}) ->
     erlang:error({'Authorization was not completed', OperationID, AuthSt}).
 
-assert_reply(_OperationID, #reqst{reply = Reply}) when Reply /= undefined ->
-    Reply;
-assert_reply(OperationID, _ReqSt) ->
+-spec assert_reply(request_state()) ->
+    {ok, reply()} | no_return().
+assert_reply(#reqst{reply = Reply}) when Reply /= undefined ->
+    {ok, Reply};
+assert_reply(#reqst{reply = undefined, operation_id = OperationID}) ->
     erlang:error({'Nothing to reply with', OperationID}).
 
 -spec process_request(
