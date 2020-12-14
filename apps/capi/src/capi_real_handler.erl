@@ -1869,7 +1869,7 @@ authorize_operation(
     Resolution = capi_auth:authorize_operation(Context, Provider),
     case Resolution of
         forbidden ->
-            erlang:throw({forbidden, undefined}); % FIXME reason?
+            erlang:throw({forbidden, policy});
         _ ->
             {Resolution, ReqSt#reqst{auth_st = completed}}
     end.
