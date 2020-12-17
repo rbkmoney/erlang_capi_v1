@@ -258,7 +258,7 @@ process_request('FulfillInvoice', Req, ReqSt0) ->
     Result = service_call(
         invoicing,
         'Fulfill',
-        [_UserInfo = undefined, InvoiceID, Reason],
+        {_UserInfo = undefined, InvoiceID, Reason},
         ReqSt1
     ),
     case Result of
@@ -292,7 +292,7 @@ process_request('RescindInvoice', Req, ReqSt0) ->
     Result = service_call(
         invoicing,
         'Rescind',
-        [_UserInfo = undefined, InvoiceID, Reason],
+        {_UserInfo = undefined, InvoiceID, Reason},
         ReqSt1
     ),
     case Result of
@@ -327,7 +327,7 @@ process_request('GetInvoiceEvents', Req, ReqSt0) ->
         service_call(
             invoicing,
             'GetEvents',
-            [_UserInfo = undefined, InvoiceID, Range],
+            {_UserInfo = undefined, InvoiceID, Range},
             ReqSt1
         )
     end,
@@ -444,7 +444,7 @@ process_request('CancelPayment', Req, ReqSt0) ->
     Result = service_call(
         invoicing,
         'CancelPayment',
-        [_UserInfo = undefined, InvoiceID, PaymentID, Reason],
+        {_UserInfo = undefined, InvoiceID, PaymentID, Reason},
         ReqSt1
     ),
     case Result of
@@ -488,7 +488,7 @@ process_request('CapturePayment', Req, ReqSt0) ->
     Result = service_call(
         invoicing,
         'CapturePaymentNew',
-        [_UserInfo = undefined, InvoiceID, PaymentID, CaptureParams],
+        {_UserInfo = undefined, InvoiceID, PaymentID, CaptureParams},
         ReqSt1
     ),
     case Result of
@@ -643,7 +643,7 @@ process_request('GetLocationsNames', Req, ReqSt0) ->
     Result = service_call(
         geo_ip_service,
         'GetLocationName',
-        [GeoIDs, Language],
+        {GeoIDs, Language},
         ReqSt1
     ),
     case Result of
@@ -686,7 +686,7 @@ process_request('CreateRefund' = OperationID, Req, ReqSt0) ->
     Result = service_call(
         invoicing,
         'RefundPayment',
-        [_UserInfo = undefined, InvoiceID, PaymentID, Params],
+        {_UserInfo = undefined, InvoiceID, PaymentID, Params},
         ReqSt1
     ),
     case Result of
@@ -798,7 +798,7 @@ process_request('CreateInvoiceTemplate', Req, ReqSt0) ->
         service_call(
             invoice_templating,
             'Create',
-            [_UserInfo = undefined, Params],
+            {_UserInfo = undefined, Params},
             ReqSt1
         )
     of
@@ -857,7 +857,7 @@ process_request('UpdateInvoiceTemplate', Req, ReqSt0) ->
         service_call(
             invoice_templating,
             'Update',
-            [_UserInfo = undefined, InvoiceTemplateID, Params],
+            {_UserInfo = undefined, InvoiceTemplateID, Params},
             ReqSt1
         )
     of
@@ -900,7 +900,7 @@ process_request('DeleteInvoiceTemplate', Req, ReqSt0) ->
     Result = service_call(
         invoice_templating,
         'Delete',
-        [_UserInfo = undefined, InvoiceTemplateID],
+        {_UserInfo = undefined, InvoiceTemplateID},
         ReqSt1
     ),
     case Result of
@@ -996,7 +996,7 @@ process_request('ActivateShop', Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'ActivateShop',
-        [_UserInfo = undefined, PartyID, ShopID],
+        {_UserInfo = undefined, PartyID, ShopID},
         ReqSt1
     ),
     case Result of
@@ -1020,7 +1020,7 @@ process_request('SuspendShop', Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'SuspendShop',
-        [_UserInfo = undefined, PartyID, ShopID],
+        {_UserInfo = undefined, PartyID, ShopID},
         ReqSt1
     ),
     case Result of
@@ -1056,7 +1056,7 @@ process_request('GetShopByID', Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'GetShop',
-        [_UserInfo = undefined, PartyID, ShopID],
+        {_UserInfo = undefined, PartyID, ShopID},
         ReqSt1
     ),
     case Result of
@@ -1081,7 +1081,7 @@ process_request('GetReports', Req, ReqSt0) ->
     StatReportRequest = #reports_StatReportRequest{
         request = ReportRequest
     },
-    Result = service_call(reporting, 'GetReports', [StatReportRequest], ReqSt1),
+    Result = service_call(reporting, 'GetReports', {StatReportRequest}, ReqSt1),
     case Result of
         {ok, #reports_StatReportResponse{reports = Reports}} ->
             Resp = [decode_report(R) || #reports_Report{status = created} = R <- Reports],
@@ -1106,7 +1106,7 @@ process_request('DownloadFile', Req, ReqSt0) ->
         ReqSt0
     ),
     % FIXME
-    Result = service_call(reporting, 'GetReport', [ReportID], ReqSt1),
+    Result = service_call(reporting, 'GetReport', {ReportID}, ReqSt1),
     case Result of
         {ok, #reports_Report{status = created, files = Files, party_id = PartyID, shop_id = ShopID}} ->
             case lists:keymember(FileID, #reports_FileMeta.file_id, Files) of
@@ -1251,7 +1251,7 @@ process_request('SuspendMyParty', _Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'Suspend',
-        [_UserInfo = undefined, PartyID],
+        {_UserInfo = undefined, PartyID},
         ReqSt1
     ),
     case Result of
@@ -1273,7 +1273,7 @@ process_request('ActivateMyParty', _Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'Activate',
-        [_UserInfo = undefined, PartyID],
+        {_UserInfo = undefined, PartyID},
         ReqSt1
     ),
     case Result of
@@ -1406,7 +1406,7 @@ process_request('GetAccountByID', Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'GetAccountState',
-        [_UserInfo = undefined, PartyID, genlib:to_int(AccountID)],
+        {_UserInfo = undefined, PartyID, genlib:to_int(AccountID)},
         ReqSt1
     ),
     case Result of
@@ -1423,7 +1423,7 @@ process_request('GetClaims', Req, ReqSt0) ->
     case service_call(
         party_management,
         'GetClaims',
-        [_UserInfo = undefined, PartyID],
+        {_UserInfo = undefined, PartyID},
         ReqSt1
     ) of
         {ok, Claims} ->
@@ -1446,7 +1446,7 @@ process_request('GetClaimByID', Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'GetClaim',
-        [_UserInfo = undefined, PartyID, genlib:to_int(ClaimID)],
+        {_UserInfo = undefined, PartyID, genlib:to_int(ClaimID)},
         ReqSt1
     ),
     case Result of
@@ -1474,7 +1474,7 @@ process_request('CreateClaim', Req, ReqSt0) ->
         Result = service_call(
             party_management,
             'CreateClaim',
-            [_UserInfo = undefined, PartyID, Changeset],
+            {_UserInfo = undefined, PartyID, Changeset},
             ReqSt1
         ),
         case Result of
@@ -1516,7 +1516,7 @@ process_request('CreateClaim', Req, ReqSt0) ->
 %     {ok, Party} = service_call(
 %         party_management,
 %         'UpdateClaim',
-%         [UserInfo, PartyID, ClaimID, ClaimRevision, Changeset],
+%         {UserInfo, PartyID, ClaimID, ClaimRevision, Changeset},
 %         ReqCtx
 %     ),
 %     Resp = decode_party(Party),
@@ -1534,7 +1534,7 @@ process_request('RevokeClaimByID', Req, ReqSt0) ->
     Result = service_call(
         party_management,
         'RevokeClaim',
-        [_UserInfo = undefined, PartyID, genlib:to_int(ClaimID), ClaimRevision, Reason],
+        {_UserInfo = undefined, PartyID, genlib:to_int(ClaimID), ClaimRevision, Reason},
         ReqSt1
     ),
     case Result of
@@ -1563,7 +1563,7 @@ process_request('CreateWebhook', Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID, webhook => WebhookParams}, ReqSt0),
     case validate_webhook_params(PartyID, WebhookParams, ReqSt1) of
         {ok, _} ->
-            {ok, Webhook} = service_call(webhook_manager, 'Create', [WebhookParams], ReqSt1),
+            {ok, Webhook} = service_call(webhook_manager, 'Create', {WebhookParams}, ReqSt1),
             reply(201, decode_webhook(Webhook), ReqSt1);
         {exception, #payproc_ShopNotFound{}} ->
             reply_bad_request(invalidShopID, <<"Shop not found">>, ReqSt1)
@@ -1571,8 +1571,9 @@ process_request('CreateWebhook', Req, ReqSt0) ->
 
 process_request('GetWebhooks', _Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO handle restrictions
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
-    {ok, Webhooks} = service_call(webhook_manager, 'GetList', [PartyID], ReqSt1),
+    {ok, Webhooks} = service_call(webhook_manager, 'GetList', {PartyID}, ReqSt1),
     reply(200, [decode_webhook(V) || V <- Webhooks], ReqSt1);
 
 process_request('GetWebhookByID', Req, ReqSt0) ->
@@ -1583,7 +1584,7 @@ process_request('GetWebhookByID', Req, ReqSt0) ->
         [{webhooks, #{webhook => WebhookID}}],
         ReqSt0
     ),
-    case WebhookID /= undefined andalso service_call(webhook_manager, 'Get', [WebhookID], ReqSt1) of
+    case WebhookID /= undefined andalso service_call(webhook_manager, 'Get', {WebhookID}, ReqSt1) of
         {ok, Webhook} ->
             reply(200, decode_webhook(Webhook), ReqSt1);
         {exception, #webhooker_WebhookNotFound{}} ->
@@ -1600,7 +1601,7 @@ process_request('DeleteWebhookByID', Req, ReqSt0) ->
         [{webhooks, #{webhook => WebhookID}}],
         ReqSt0
     ),
-    case WebhookID /= undefined andalso service_call(webhook_manager, 'Delete', [WebhookID], ReqSt1) of
+    case WebhookID /= undefined andalso service_call(webhook_manager, 'Delete', {WebhookID}, ReqSt1) of
         {ok, _} ->
             reply(204, undefined, ReqSt1);
         {exception, #webhooker_WebhookNotFound{}} ->
@@ -1617,7 +1618,7 @@ process_request('CreateCustomer', Req, ReqSt0) ->
         #{party => PartyID, shop => ShopID},
         ReqSt0
     ),
-    case service_call(customer_management, 'Create', [encode_customer_params(PartyID, Params)], ReqSt1) of
+    case service_call(customer_management, 'Create', {encode_customer_params(PartyID, Params)}, ReqSt1) of
         {ok, Customer} ->
             reply(201, make_customer_and_token(Customer, PartyID), ReqSt1);
         {exception, Exception} ->
@@ -1664,7 +1665,7 @@ process_request('DeleteCustomer', Req, ReqSt0) ->
         [{payproc, #{customer => CustomerID}}],
         ReqSt0
     ),
-    case service_call(customer_management, 'Delete', [CustomerID], ReqSt1) of
+    case service_call(customer_management, 'Delete', {CustomerID}, ReqSt1) of
         {ok, _} ->
             reply(204, undefined, ReqSt1);
         {exception, Exception} ->
@@ -1715,7 +1716,7 @@ process_request('CreateBinding', Req, ReqSt0) ->
             service_call(
                 customer_management,
                 'StartBinding',
-                [CustomerID, encode_customer_binding_params(BindingParams)],
+                {CustomerID, encode_customer_binding_params(BindingParams)},
                 ReqSt1
             )
         catch
@@ -1808,7 +1809,7 @@ process_request('GetCustomerEvents', Req, ReqSt0) ->
         service_call(
             customer_management,
             'GetEvents',
-            [CustomerID, Range],
+            {CustomerID, Range},
             ReqSt1
         )
     end,
@@ -1901,14 +1902,14 @@ create_invoice(PartyID, InvoiceParams, BenderPrefix, ReqSt) ->
     Hash = erlang:phash2(InvoiceParams),
     {ok, ID} = capi_bender:gen_by_snowflake(IdempotentKey, Hash, ReqSt#reqst.woody_ctx),
     Params = encode_invoice_params(ID, PartyID, InvoiceParams),
-    service_call(invoicing, 'Create', [_UserInfo = undefined, Params], ReqSt).
+    service_call(invoicing, 'Create', {_UserInfo = undefined, Params}, ReqSt).
 
 create_invoice_with_template(PartyID, InvoiceTplID, InvoiceParams, BenderPrefix, ReqSt) ->
     IdempotentKey = capi_bender:get_idempotent_key(BenderPrefix, PartyID, undefined),
     Hash = erlang:phash2({InvoiceTplID, InvoiceParams}),
     {ok, ID} = capi_bender:gen_by_snowflake(IdempotentKey, Hash, ReqSt#reqst.woody_ctx),
     Params = encode_invoice_params_with_tpl(ID, InvoiceTplID, InvoiceParams),
-    service_call(invoicing, 'CreateWithTemplate', [_UserInfo = undefined, Params], ReqSt).
+    service_call(invoicing, 'CreateWithTemplate', {_UserInfo = undefined, Params}, ReqSt).
 
 create_payment(PartyID, InvoiceID, PaymentParams, BenderPrefix, ReqSt) ->
     IdempotentKey = capi_bender:get_idempotent_key(BenderPrefix, PartyID, undefined),
@@ -1924,7 +1925,7 @@ create_payment(PartyID, InvoiceID, PaymentParams, BenderPrefix, ReqSt) ->
     service_call(
         invoicing,
         'StartPayment',
-        [_UserInfo = undefined, InvoiceID, InvoicePaymentParams],
+        {_UserInfo = undefined, InvoiceID, InvoicePaymentParams},
         ReqSt
     ).
 
@@ -1948,7 +1949,7 @@ check_payment_institution_residence(Residence, #domain_PaymentInstitutionObject{
 
 generate_report_presigned_url(FileID, ReqSt1) ->
     ExpiresAt = get_default_url_lifetime(),
-    Result = service_call(reporting, 'GeneratePresignedUrl', [FileID, ExpiresAt], ReqSt1),
+    Result = service_call(reporting, 'GeneratePresignedUrl', {FileID, ExpiresAt}, ReqSt1),
     case Result of
         {ok, URL} ->
             reply(303, #{<<"Location">> => URL}, undefined, ReqSt1);
@@ -1973,7 +1974,7 @@ validate_event_filter_shop(PartyID, ShopID, ReqSt) when ShopID /= undefined ->
     service_call(
         party_management,
         'GetShop',
-        [_UserInfo = undefined, PartyID, ShopID],
+        {_UserInfo = undefined, PartyID, ShopID},
         ReqSt
     ).
 
@@ -2029,7 +2030,7 @@ create_woody_context(#{'X-Request-ID' := RequestID}, AuthContext) ->
 collect_user_identity(AuthContext) ->
     genlib_map:compact(#{
         id => capi_auth:get_subject_id(AuthContext),
-        realm => ?REALM,
+        realm => ?REALM, % FIXME
         email => capi_auth:get_claim(<<"email">>, AuthContext, undefined),
         username => capi_auth:get_claim(<<"name">>, AuthContext, undefined)
     }).
@@ -4807,7 +4808,7 @@ process_merchant_stat(StatType, Req, ReqSt0) ->
     Result = service_call(
         merchant_stat,
         'GetStatistics',
-        [encode_stat_request(Dsl)],
+        {encode_stat_request(Dsl)},
         ReqSt1
     ),
     process_merchant_stat_result(StatType, Result, ReqSt1).
@@ -4845,7 +4846,7 @@ process_search_request(QueryType, Query, Req, Opts = #{thrift_fun := ThriftFun},
     Result = service_call(
         merchant_stat,
         ThriftFun,
-        [encode_stat_request(Dsl)],
+        {encode_stat_request(Dsl)},
         ReqSt
     ),
     process_search_request_result(QueryType, Result, Opts, ReqSt).
@@ -4908,7 +4909,7 @@ get_invoice_by_id(InvoiceID, ReqSt) ->
     service_call(
         invoicing,
         'Get',
-        [_UserInfo = undefined, InvoiceID, EventRange],
+        {_UserInfo = undefined, InvoiceID, EventRange},
         ReqSt
     ).
 
@@ -4939,7 +4940,7 @@ get_customer_by_id(CustomerID, ReqSt) ->
     service_call(
         customer_management,
         'Get',
-        [CustomerID, EventRange],
+        {CustomerID, EventRange},
         ReqSt
     ).
 
@@ -4947,7 +4948,7 @@ get_invoice_tpl_by_id(InvoiceTplID, ReqSt) ->
     service_call(
         invoice_templating,
         'Get',
-        [_UserInfo = undefined, InvoiceTplID],
+        {_UserInfo = undefined, InvoiceTplID},
         ReqSt
     ).
 
@@ -4955,7 +4956,7 @@ get_payment_by_id(InvoiceID, PaymentID, ReqSt) ->
     service_call(
         invoicing,
         'GetPayment',
-        [_UserInfo = undefined, InvoiceID, PaymentID],
+        {_UserInfo = undefined, InvoiceID, PaymentID},
         ReqSt
     ).
 
@@ -4972,7 +4973,7 @@ create_party(PartyID, ReqSt = #reqst{request_ctx = ReqCtx}) ->
     Result = service_call(
         party_management,
         'Create',
-        [_UserInfo = undefined, PartyID, PartyParams],
+        {_UserInfo = undefined, PartyID, PartyParams},
         ReqSt
     ),
     case Result of
@@ -4988,7 +4989,7 @@ get_party(PartyID, ReqSt) ->
     service_call(
         party_management,
         'Get',
-        [_UserInfo = undefined, PartyID],
+        {_UserInfo = undefined, PartyID},
         ReqSt
     ).
 
@@ -4996,7 +4997,7 @@ get_party_revision(PartyID, ReqSt) ->
     service_call(
         party_management,
         'GetGetRevision',
-        [_UserInfo = undefined, PartyID],
+        {_UserInfo = undefined, PartyID},
         ReqSt
     ).
 
@@ -5020,7 +5021,7 @@ get_contract_by_id(PartyID, ContractID, ReqSt) ->
     service_call(
         party_management,
         'GetContract',
-        [_UserInfo = undefined, PartyID, ContractID],
+        {_UserInfo = undefined, PartyID, ContractID},
         ReqSt
     ).
 
@@ -5170,7 +5171,7 @@ decode_tokenized_bank_card(TokenProvider, PaymentSystems) ->
     }.
 
 compute_terms(ServiceName, Args, ReqSt) ->
-    service_call(ServiceName, 'ComputeTerms', Args, ReqSt).
+    service_call(ServiceName, 'ComputeTerms', list_to_tuple(Args), ReqSt). % FIXME
 
 reply_5xx(Code) when Code >= 500 andalso Code < 600 ->
     {Code, #{}, <<>>}.
@@ -5215,7 +5216,7 @@ compute_payment_institution_terms(PaymentInstitutionID, VS, ReqSt) ->
     service_call(
         party_management,
         'ComputePaymentInstitutionTerms',
-        [_UserInfo = undefined, ?payment_institution_ref(PaymentInstitutionID), VS],
+        {_UserInfo = undefined, ?payment_institution_ref(PaymentInstitutionID), VS},
         ReqSt
     ).
 

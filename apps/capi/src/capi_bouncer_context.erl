@@ -180,7 +180,7 @@ build_op_webhook_ctx(#webhooker_WebhookParams{party_id = PartyID, event_filter =
 %%
 
 build_invoice_ctx(ID, WoodyCtx) when is_binary(ID) ->
-    maybe_with_woody_result(invoicing, 'Get', [_UserInfo = undefined, ID, #payproc_EventRange{}], WoodyCtx,
+    maybe_with_woody_result(invoicing, 'Get', {_UserInfo = undefined, ID, #payproc_EventRange{}}, WoodyCtx,
         fun build_invoice_ctx/1);
 build_invoice_ctx(Invoice, _WoodyCtx) ->
     build_invoice_ctx(Invoice).
@@ -203,7 +203,7 @@ build_refund_ctx(#payproc_InvoicePaymentRefund{refund = Refund}) ->
     build_entity(Refund#domain_InvoicePaymentRefund.id).
 
 build_invoice_template_ctx(ID, WoodyCtx) when is_binary(ID) ->
-    maybe_with_woody_result(invoice_templating, 'Get', [_UserInfo = undefined, ID], WoodyCtx,
+    maybe_with_woody_result(invoice_templating, 'Get', {_UserInfo = undefined, ID}, WoodyCtx,
         fun build_invoice_template_ctx/1);
 build_invoice_template_ctx(InvoiceTemplate, _WoodyCtx) ->
     build_invoice_template_ctx(InvoiceTemplate).
@@ -216,7 +216,7 @@ build_invoice_template_ctx(#domain_InvoiceTemplate{id = ID, owner_id = OwnerID, 
     }.
 
 build_customer_ctx(ID, WoodyCtx) when is_binary(ID) ->
-    maybe_with_woody_result(customer_management, 'Get', [ID, #payproc_EventRange{}], WoodyCtx,
+    maybe_with_woody_result(customer_management, 'Get', {ID, #payproc_EventRange{}}, WoodyCtx,
         fun build_customer_ctx/1);
 build_customer_ctx(Customer, _WoodyCtx) ->
     build_customer_ctx(Customer).
@@ -235,7 +235,7 @@ build_binding_ctx(#payproc_CustomerBinding{id = ID}) ->
 %%
 
 build_payout_ctx(ID, WoodyCtx) when is_binary(ID) ->
-    maybe_with_woody_result(payout_management, 'Get', [ID], WoodyCtx, fun build_payout_ctx/1);
+    maybe_with_woody_result(payout_management, 'Get', {ID}, WoodyCtx, fun build_payout_ctx/1);
 build_payout_ctx(Payout, _WoodyCtx) ->
     build_payout_ctx(Payout).
 
@@ -255,7 +255,7 @@ build_payout_ctx(#payout_processing_Payout{
 %%
 
 build_webhook_ctx(ID, WoodyCtx) when is_integer(ID) ->
-    maybe_with_woody_result(webhook_manager, 'Get', [ID], WoodyCtx, fun build_webhook_ctx/1);
+    maybe_with_woody_result(webhook_manager, 'Get', {ID}, WoodyCtx, fun build_webhook_ctx/1);
 build_webhook_ctx(Webhook, _WoodyCtx) ->
     build_webhook_ctx(Webhook).
 
@@ -284,7 +284,7 @@ build_webhook_filter_details(#webhooker_WalletEventFilter{}, Ctx) ->
 %%
 
 build_report_ctx(ID, WoodyCtx) when is_integer(ID) ->
-    maybe_with_woody_result(reporting, 'GetReport', [ID], WoodyCtx, fun build_report_ctx/1);
+    maybe_with_woody_result(reporting, 'GetReport', {ID}, WoodyCtx, fun build_report_ctx/1);
 build_report_ctx(Report, _WoodyCtx) ->
     build_report_ctx(Report).
 
