@@ -21,7 +21,7 @@
 -type context() :: {claims(), capi_authorizer_jwt:metadata()}.
 
 -type provider() ::
-    {bouncer, capi_bouncer:context_fragments(), woody_context:ctx()} |
+    {bouncer, capi_bouncer_context:fragments(), woody_context:ctx()} |
     {legacy, capi_acl:t()}.
 
 -type resolution() ::
@@ -86,7 +86,7 @@ init_provider(ReqCtx, WoodyCtx) ->
     % number of various access tokens will probably be in-flight at the time of service update
     % rollout. And if we ever receive such token it should be better to handle it through legacy
     % authz machinery, since we have no simple way to extract required bouncer context out of it.
-    case capi_bouncer:try_mk_context_fragments(ReqCtx, WoodyCtx) of
+    case capi_bouncer:extract_context_fragments(ReqCtx, WoodyCtx) of
         Fragments when Fragments /= undefined ->
             {ok, {bouncer, Fragments, WoodyCtx}};
         undefined ->
@@ -105,21 +105,14 @@ init_legacy_provider(ReqCtx) ->
     end.
 
 -spec authorize_operation(
-    Context :: capi_bouncer:context(),
+    Prototype :: capi_bouncer_context:prototype(),
     Provider :: provider()
 ) -> resolution().
-authorize_operation(Context, {bouncer, Fragments0, WoodyCtx}) ->
-    Fragments = capi_bouncer:attach_context(Context, Fragments0),
-    capi_bouncer:authorize_operation(Fragments, WoodyCtx);
+authorize_operation(Prototype, {bouncer, Fragments0, WoodyCtx}) ->
+    Fragments1 = capi_bouncer_context:build(Prototype, Fragments0, WoodyCtx),
+    capi_bouncer:judge(Fragments1, WoodyCtx);
 authorize_operation(Context, {legacy, ACL}) ->
     authorize_operation_legacy(Context, ACL).
-
-make_auth_expiration(Timestamp) when is_integer(Timestamp) ->
-    genlib_rfc3339:format(Timestamp, second);
-make_auth_expiration(unlimited) ->
-    undefined.
-
-%%
 
 authorize_operation_legacy(Context, ACL) ->
     % FIXME error case?
@@ -137,9 +130,9 @@ authorize_acl(OperationID, OperationContext, ACL) ->
         Access
     ) of
         true ->
-            ok;
+            allowed;
         false ->
-            {error, unauthorized}
+            forbidden
     end.
 
 get_auth_context(#{auth_context := AuthContext}) ->
@@ -172,7 +165,7 @@ issue_invoice_access_token(PartyID, InvoiceID, Claims) ->
         {[{invoices, InvoiceID}, payments], write},
         {[payment_resources], write}
     ],
-    ExpiresAt = mk_expires_at({lifetime, ?DEFAULT_INVOICE_ACCESS_TOKEN_LIFETIME}),
+    ExpiresAt = lifetime_to_expiration(?DEFAULT_INVOICE_ACCESS_TOKEN_LIFETIME),
     ContextFragment = bouncer_context_helpers:make_auth_fragment(
         #{
             method => ?AUTH_METHOD_INVOICE_ACCESS_TOKEN,
@@ -224,7 +217,7 @@ issue_customer_access_token(PartyID, CustomerID, Claims) ->
         {[{customers, CustomerID}, bindings], write},
         {[payment_resources], write}
     ],
-    ExpiresAt = mk_expires_at({lifetime, ?DEFAULT_CUSTOMER_ACCESS_TOKEN_LIFETIME}),
+    ExpiresAt = lifetime_to_expiration(?DEFAULT_CUSTOMER_ACCESS_TOKEN_LIFETIME),
     ContextFragment = bouncer_context_helpers:make_auth_fragment(
         #{
             method => ?AUTH_METHOD_CUSTOMER_ACCESS_TOKEN,
@@ -248,26 +241,19 @@ issue_customer_access_token(PartyID, CustomerID, Claims) ->
     capi_authorizer_jwt:expiration()
 ) -> {ok, capi_authorizer_jwt:token()} | {error, _}.
 issue_access_token(PartyID, BaseClaims, ACL, ContextFragment, ExpiresAt) ->
-    BouncerCtxClaim = capi_bouncer:encode_context_claim(ContextFragment),
     Claims1 = capi_authorizer_jwt:set_subject_id(PartyID, BaseClaims),
     Claims2 = capi_authorizer_jwt:set_expires_at(ExpiresAt, Claims1),
     Claims3 = capi_authorizer_jwt:set_acl(capi_acl:from_list(ACL), Claims2),
-    Claims4 = Claims3#{?CLAIM_BOUNCER_CTX => BouncerCtxClaim},
+    Claims4 = capi_bouncer:set_claim(ContextFragment, Claims3),
     capi_authorizer_jwt:issue(Claims4).
 
--type expiration() ::
-    {lifetime, _Seconds :: non_neg_integer()} |
-    {deadline, _Timestamp :: genlib_time:ts()} |
-    unlimited.
+lifetime_to_expiration(Lt) ->
+    genlib_time:unow() + Lt.
 
--spec mk_expires_at(expiration()) ->
-    capi_authorizer_jwt:expiration().
-mk_expires_at({lifetime, Lt}) ->
-    genlib_time:unow() + Lt;
-mk_expires_at({deadline, Dl}) ->
-    Dl;
-mk_expires_at(unlimited) ->
-    unlimited.
+make_auth_expiration(Timestamp) when is_integer(Timestamp) ->
+    genlib_rfc3339:format(Timestamp, second);
+make_auth_expiration(unlimited) ->
+    undefined.
 
 -spec get_subject_id(context()) -> binary().
 get_subject_id({Claims, _}) ->
@@ -283,7 +269,7 @@ get_claim(ClaimName, {Claims, _}, Default) ->
 
 %%
 
--spec get_operation_access(swag_server:operation_id(), capi_bouncer:operation_context()) ->
+-spec get_operation_access(swag_server:operation_id(), capi_bouncer_context:prototype_operation()) ->
     [{capi_acl:scope(), capi_acl:permission()}].
 get_operation_access('CreateInvoice', _) ->
     [{[invoices], write}];

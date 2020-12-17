@@ -209,7 +209,7 @@ process_request('CreateInvoiceAccessToken', Req, ReqSt0) ->
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID},
-        [{payproc, with_woody_result(invoice, InvoiceResult, #{})}],
+        [{payproc, #{invoice => map_woody_result(InvoiceResult)}}],
         ReqSt0
     ),
     case InvoiceResult of
@@ -230,7 +230,7 @@ process_request('GetInvoiceByID', Req, ReqSt0) ->
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID},
-        [{payproc, with_woody_result(invoice, InvoiceResult, #{})}],
+        [{payproc, #{invoice => map_woody_result(InvoiceResult)}}],
         ReqSt0
     ),
     case InvoiceResult of
@@ -388,7 +388,7 @@ process_request('GetPayments', Req, ReqSt0) ->
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID},
-        [{payproc, with_woody_result(invoice, InvoiceResult, #{})}],
+        [{payproc, #{invoice => map_woody_result(InvoiceResult)}}],
         ReqSt0
     ),
     case InvoiceResult of
@@ -410,12 +410,7 @@ process_request('GetPaymentByID', Req, ReqSt0) ->
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID, payment => PaymentID},
-        [{payproc, with_woody_result(
-            payment,
-            InvoiceResult,
-            fun(Invoice) -> {Invoice, PaymentID} end, % FIXME looks crappy 💩
-            #{}
-        )}],
+        [{payproc, #{invoice => map_woody_result(InvoiceResult)}}],
         ReqSt0
     ),
     case InvoiceResult of
@@ -441,7 +436,7 @@ process_request('CancelPayment', Req, ReqSt0) ->
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID, payment => PaymentID},
-        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        [{payproc, #{invoice => InvoiceID}}],
         ReqSt0
     ),
     Params = maps:get('Reason', Req),
@@ -482,7 +477,7 @@ process_request('CapturePayment', Req, ReqSt0) ->
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID, payment => PaymentID},
-        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        [{payproc, #{invoice => InvoiceID}}],
         ReqSt0
     ),
     Params = maps:get('Reason', Req),
@@ -600,13 +595,15 @@ process_request('SearchPayments', Req, ReqSt0) ->
 
 process_request('SearchPayouts', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
-    ShopID = genlib_map:get('shopID', Req),
-    PayoutID = genlib_map:get('payoutID', Req),
-    OpCtx = with_maybe(payout, PayoutID, with_maybe(shop, ShopID, #{party => PartyID})),
-    PayoutsCtx = with_maybe(payout, PayoutID, #{}),
+    ShopID = maps:get('shopID', Req),
+    PayoutID = maps:get('payoutID', Req, undefined),
     % TODO
     % Handle restrictions on a set of shops.
-    {allowed, ReqSt1} = authorize_operation(OpCtx, [{payoutproc, PayoutsCtx}], ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(
+        with_maybe(payout, PayoutID, #{party => PartyID, shop => ShopID}),
+        [{payouts, with_maybe(payout, PayoutID, #{})}],
+        ReqSt0
+    ),
     Query = #{
         <<"merchant_id">> => PartyID,
         <<"shop_id">> => ShopID,
@@ -667,7 +664,7 @@ process_request('CreateRefund' = OperationID, Req, ReqSt0) ->
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID, payment => PaymentID},
-        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        [{payproc, #{invoice => InvoiceID}}],
         ReqSt0
     ),
     RefundParams = maps:get('RefundParams', Req),
@@ -732,7 +729,7 @@ process_request('GetRefunds', Req, ReqSt0) ->
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID, payment => PaymentID},
-        [{payproc, #{payment => {InvoiceID, PaymentID}}}],
+        [{payproc, #{invoice => InvoiceID}}],
         ReqSt0
     ),
     Result = get_payment_by_id(InvoiceID, PaymentID, ReqSt1),
@@ -763,14 +760,7 @@ process_request('GetRefundByID', Req, ReqSt0) ->
             payment => PaymentID,
             refund => RefundID
         },
-        [{payproc, #{
-            refund => with_woody_result(
-                refund,
-                InvoiceResult,
-                fun (Invoice) -> {Invoice, PaymentID, RefundID} end,
-                #{}
-            )
-        }}],
+        [{payproc, #{invoice => map_woody_result(InvoiceResult)}}],
         ReqSt0
     ),
     case InvoiceResult of
@@ -836,7 +826,7 @@ process_request('GetInvoiceTemplateByID', Req, ReqSt0) ->
     InvoiceTemplateResult = get_invoice_tpl_by_id(InvoiceTemplateID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice_template => InvoiceTemplateID},
-        [{payproc, with_woody_result(invoice_template,  InvoiceTemplateResult, #{})}],
+        [{payproc, #{invoice_template => map_woody_result(InvoiceTemplateResult)}}],
         ReqSt0
     ),
     case InvoiceTemplateResult of
@@ -856,7 +846,7 @@ process_request('UpdateInvoiceTemplate', Req, ReqSt0) ->
     InvoiceTemplateResult = get_invoice_tpl_by_id(InvoiceTemplateID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice_template => InvoiceTemplateID},
-        [{payproc, with_woody_result(invoice_template,  InvoiceTemplateResult, #{})}],
+        [{payproc, #{invoice_template => map_woody_result(InvoiceTemplateResult)}}],
         ReqSt0
     ),
     try
@@ -1112,7 +1102,7 @@ process_request('DownloadFile', Req, ReqSt0) ->
     FileID = maps:get(fileID, Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, shop => ShopID, report => ReportID, file => FileID},
-        [{reporting, #{report => ReportID}}],
+        [{reports, #{report => ReportID}}],
         ReqSt0
     ),
     % FIXME
@@ -1410,7 +1400,7 @@ process_request('GetAccountByID', Req, ReqSt0) ->
     % Account IDs are global and have no backrefs to party management entities whatsoever.
     % Turns out party management implementation is responsible for proper access control here.
     {allowed, ReqSt1} = authorize_operation(
-        #{party => PartyID, account => AccountID},
+        #{party => PartyID}, % TODO account => AccountID ?
         ReqSt0
     ),
     Result = service_call(
@@ -1570,8 +1560,7 @@ process_request('RevokeClaimByID', Req, ReqSt0) ->
 process_request('CreateWebhook', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     WebhookParams = encode_webhook_params(PartyID, maps:get('Webhook', Req)),
-    OpCtx = get_webhook_context(WebhookParams),
-    {allowed, ReqSt1} = authorize_operation(OpCtx#{party => PartyID}, ReqSt0),
+    {allowed, ReqSt1} = authorize_operation(#{party => PartyID, webhook => WebhookParams}, ReqSt0),
     case validate_webhook_params(PartyID, WebhookParams, ReqSt1) of
         {ok, _} ->
             {ok, Webhook} = service_call(webhook_manager, 'Create', [WebhookParams], ReqSt1),
@@ -1588,42 +1577,35 @@ process_request('GetWebhooks', _Req, ReqSt0) ->
 
 process_request('GetWebhookByID', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
-    WebhookID = maps:get(webhookID, Req),
+    WebhookID = try_encode_webhook_id(maps:get(webhookID, Req)),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, webhook => WebhookID},
         [{webhooks, #{webhook => WebhookID}}],
         ReqSt0
     ),
-    case encode_webhook_id(WebhookID) of
-        {ok, ID} ->
-            case service_call(webhook_manager, 'Get', [ID], ReqSt1) of
-                {ok, Webhook} ->
-                    reply(200, decode_webhook(Webhook), ReqSt1);
-                {exception, #webhooker_WebhookNotFound{}} ->
-                    reply_not_found(<<"Webhook not found">>, ReqSt1)
-            end;
-        error ->
+    case WebhookID /= undefined andalso service_call(webhook_manager, 'Get', [WebhookID], ReqSt1) of
+        {ok, Webhook} ->
+            reply(200, decode_webhook(Webhook), ReqSt1);
+        {exception, #webhooker_WebhookNotFound{}} ->
+            reply_not_found(<<"Webhook not found">>, ReqSt1);
+        false ->
             reply_not_found(<<"Webhook not found">>, ReqSt1)
     end;
 
 process_request('DeleteWebhookByID', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
-    WebhookID = maps:get(webhookID, Req),
+    WebhookID = try_encode_webhook_id(maps:get(webhookID, Req)),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, webhook => WebhookID},
         [{webhooks, #{webhook => WebhookID}}],
         ReqSt0
     ),
-    case encode_webhook_id(WebhookID) of
-        {ok, ID} ->
-            Result = service_call(webhook_manager, 'Delete', [ID], ReqSt1),
-            case Result of
-                {ok, _} ->
-                    reply(204, undefined, ReqSt1);
-                {exception, #webhooker_WebhookNotFound{}} ->
-                    reply(204, undefined, ReqSt1)
-            end;
-        error ->
+    case WebhookID /= undefined andalso service_call(webhook_manager, 'Delete', [WebhookID], ReqSt1) of
+        {ok, _} ->
+            reply(204, undefined, ReqSt1);
+        {exception, #webhooker_WebhookNotFound{}} ->
+            reply(204, undefined, ReqSt1);
+        false ->
             reply_not_found(<<"Webhook not found">>, ReqSt1)
     end;
 
@@ -1659,7 +1641,7 @@ process_request('GetCustomerById', Req, ReqSt0) ->
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, customer => CustomerID},
-        [{payproc, with_woody_result(customer, CustomerResult, #{})}],
+        [{payproc, #{customer => map_woody_result(CustomerResult)}}],
         ReqSt0
     ),
     case CustomerResult of
@@ -1704,7 +1686,7 @@ process_request('CreateCustomerAccessToken', Req, ReqSt0) ->
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, customer => CustomerID},
-        [{payproc, with_woody_result(customer, CustomerResult, #{})}],
+        [{payproc, #{customer => map_woody_result(CustomerResult)}}],
         ReqSt0
     ),
     case CustomerResult of
@@ -1772,7 +1754,7 @@ process_request('GetBindings', Req, ReqSt0) ->
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, customer => CustomerID},
-        [{payproc, with_woody_result(customer, CustomerResult, #{})}],
+        [{payproc, #{customer => map_woody_result(CustomerResult)}}],
         ReqSt0
     ),
     case CustomerResult of
@@ -1793,8 +1775,8 @@ process_request('GetBinding', Req, ReqSt0) ->
     BindingID = maps:get(customerBindingID, Req),
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
-        #{party => PartyID, customer => CustomerID}, % TODO binding id?
-        [{payproc, with_woody_result(customer, CustomerResult, #{})}],
+        #{party => PartyID, customer => CustomerID, binding => BindingID},
+        [{payproc, #{customer => map_woody_result(CustomerResult)}}],
         ReqSt0
     ),
     case CustomerResult of
@@ -1818,7 +1800,7 @@ process_request('GetCustomerEvents', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
     CustomerID = maps:get('customerID', Req),
     {allowed, ReqSt1} = authorize_operation(
-        #{party => PartyID, customer => CustomerID}, % TODO binding id?
+        #{party => PartyID, customer => CustomerID},
         [{payproc, #{customer => CustomerID}}],
         ReqSt0
     ),
@@ -1853,34 +1835,33 @@ process_request('GetCustomerEvents', Req, ReqSt0) ->
             end
     end.
 
--spec authorize_operation(capi_auth:operation_context(), request_state()) ->
+-spec authorize_operation(
+    capi_bouncer_context:prototype_operation(),
+    request_state()
+) ->
     {capi_auth:resolution(), request_state()} | no_return().
-authorize_operation(OperationContext, ReqSt) ->
-    authorize_operation(OperationContext, [], ReqSt).
+authorize_operation(OpCtxPrototype, ReqSt) ->
+    authorize_operation(OpCtxPrototype, [], ReqSt).
 
--spec authorize_operation(capi_auth:operation_context(), [AdditionalContext], request_state()) ->
+-spec authorize_operation(
+    capi_bouncer_context:prototype_operation(),
+    capi_bouncer_context:prototype(),
+    request_state()
+) ->
     {capi_auth:resolution(), request_state()} | no_return().
 authorize_operation(
-    OperationContext,
-    AdditionalContext,
+    OpCtxPrototype,
+    AdditionalPrototype,
     ReqSt = #reqst{operation_id = OperationID, auth_st = {initialized, Provider}}
 ) ->
-    Context = [{operation, OperationContext#{id => OperationID}} | AdditionalContext],
-    Resolution = capi_auth:authorize_operation(Context, Provider),
+    Prototype = [{operation, OpCtxPrototype#{id => OperationID}} | AdditionalPrototype],
+    Resolution = capi_auth:authorize_operation(Prototype, Provider),
     case Resolution of
         forbidden ->
             erlang:throw({forbidden, policy});
         _ ->
             {Resolution, ReqSt#reqst{auth_st = completed}}
     end.
-
-with_woody_result(Name, Result, Map) ->
-    with_woody_result(Name, Result, fun (V) -> V end, Map).
-
-with_woody_result(Name, {ok, Value}, F, Map) ->
-    Map#{Name => F(Value)};
-with_woody_result(_Name, {exception, _}, _, Map) ->
-    Map.
 
 with_maybe(_, undefined, Map) ->
     Map;
@@ -1980,14 +1961,6 @@ generate_report_presigned_url(FileID, ReqSt1) ->
             end
     end.
 
-get_webhook_context(#webhooker_WebhookParams{event_filter = EventFilter}) ->
-    case EventFilter of
-        {invoice, #webhooker_InvoiceEventFilter{shop_id = ShopID}} ->
-            #{shop => ShopID};
-        {customer, #webhooker_CustomerEventFilter{shop_id = ShopID}} ->
-            #{shop => ShopID}
-    end.
-
 validate_webhook_params(PartyID, #webhooker_WebhookParams{event_filter = EventFilter}, ReqSt) ->
     validate_event_filter(PartyID, EventFilter, ReqSt).
 
@@ -2004,13 +1977,10 @@ validate_event_filter_shop(PartyID, ShopID, ReqSt) when ShopID /= undefined ->
         ReqSt
     ).
 
-encode_webhook_id(WebhookID) ->
-    try
-        ID = binary_to_integer(WebhookID),
-        {ok, ID}
-    catch
+try_encode_webhook_id(WebhookID) ->
+    try binary_to_integer(WebhookID) catch
         error:badarg ->
-            error
+            undefined
     end.
 
 decode_webhook_id(WebhookID) when is_integer(WebhookID) ->
