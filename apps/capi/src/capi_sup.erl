@@ -29,12 +29,11 @@ init([]) ->
     {LogicHandler, LogicHandlerSpecs} = get_logic_handler_info(),
     HealthCheck = enable_health_logging(genlib_app:env(?APP, health_check, #{})),
     AdditionalRoutes = [{'_', [erl_health_handle:get_route(HealthCheck), get_prometheus_route()]}],
-    BlacklistSpecs = capi_api_key_blacklist:child_spec(),
     SwaggerHandlerOpts = genlib_app:env(?APP, swagger_handler_opts, #{}),
     SwaggerSpec = capi_swagger_server:child_spec({AdditionalRoutes, LogicHandler, SwaggerHandlerOpts}),
     {ok, {
         {one_for_all, 0, 1},
-        [BlacklistSpecs] ++ [LechiffreSpec] ++ AuthorizerSpecs ++ LogicHandlerSpecs ++ [SwaggerSpec]
+        [LechiffreSpec] ++ AuthorizerSpecs ++ LogicHandlerSpecs ++ [SwaggerSpec]
     }}.
 
 -spec get_authorizer_child_specs() -> [supervisor:child_spec()].
