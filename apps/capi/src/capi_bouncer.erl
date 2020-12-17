@@ -82,8 +82,7 @@ build_auth_context_fragments(user_session_token, {Claims, Metadata}, WoodyCtx) -
     ),
     case bouncer_context_helpers:get_user_orgs_fragment(UserID, WoodyCtx) of
         {ok, UserOrgsFragment} ->
-            % TODO not really useful `fragments` abstraction it seems
-            {Acc2, External#{<<"userorg">> => {encoded_fragment, UserOrgsFragment}}};
+            {Acc2, External#{<<"userorg">> => UserOrgsFragment}};
         {error, {user, notfound}} ->
             {Acc2, External}
     end.
