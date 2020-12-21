@@ -5171,7 +5171,9 @@ decode_tokenized_bank_card(TokenProvider, PaymentSystems) ->
     }.
 
 compute_terms(ServiceName, Args, ReqSt) ->
-    service_call(ServiceName, 'ComputeTerms', list_to_tuple(Args), ReqSt). % FIXME
+    % TODO
+    % This tuple conversion feels a bit dirty.
+    service_call(ServiceName, 'ComputeTerms', list_to_tuple(Args), ReqSt).
 
 reply_5xx(Code) when Code >= 500 andalso Code < 600 ->
     {Code, #{}, <<>>}.
