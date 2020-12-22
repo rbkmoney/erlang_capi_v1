@@ -4914,26 +4914,28 @@ get_invoice_by_id(InvoiceID, ReqSt) ->
     ).
 
 find_payment_by_id(PaymentID, #payproc_Invoice{payments = Payments}) ->
-    DropFun = fun(#payproc_InvoicePayment{payment = Payment}) ->
-        Payment#domain_InvoicePayment.id == PaymentID
-    end,
-    case lists:dropwhile(DropFun, genlib:define(Payments, [])) of
-        [Payment | _] ->
-            Payment;
-        [] ->
-            undefined
-    end.
+    find_by(
+        fun(#payproc_InvoicePayment{payment = Payment}) ->
+            Payment#domain_InvoicePayment.id == PaymentID
+        end,
+        genlib:define(Payments, [])
+    ).
 
 find_refund_by_id(RefundID, #payproc_InvoicePayment{refunds = Refunds}) ->
-    DropFun = fun(#payproc_InvoicePaymentRefund{refund = Refund}) ->
-        Refund#domain_InvoicePaymentRefund.id == RefundID
-    end,
-    case lists:dropwhile(DropFun, genlib:define(Refunds, [])) of
-        [Payment | _] ->
-            Payment;
-        [] ->
-            undefined
-    end.
+    find_by(
+        fun(#payproc_InvoicePaymentRefund{refund = Refund}) ->
+            Refund#domain_InvoicePaymentRefund.id == RefundID
+        end,
+        genlib:define(Refunds, [])
+    ).
+
+find_by(Fun, [E | Rest]) ->
+    case Fun(E) of
+        true -> E;
+        false -> find_by(Fun, Rest)
+    end;
+find_by(_, []) ->
+    undefined.
 
 get_customer_by_id(CustomerID, ReqSt) ->
     EventRange = mk_event_range(),
