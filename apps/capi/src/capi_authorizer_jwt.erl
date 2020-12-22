@@ -296,12 +296,12 @@ validate_claims(Claims, []) ->
     Claims.
 
 get_kid(#{<<"kid">> := KID}) when is_binary(KID) ->
-    ok;
+    KID;
 get_kid(#{}) ->
     throw({invalid_token, {missing, kid}}).
 
 get_alg(#{<<"alg">> := Alg}) when is_binary(Alg) ->
-    ok;
+    Alg;
 get_alg(#{}) ->
     throw({invalid_token, {missing, alg}}).
 
@@ -314,7 +314,7 @@ get_validators() ->
         {expires_at, <<"exp">>, fun check_presence/2}
     ].
 
-check_presence(_, V) when is_binary(V) ->
+check_presence(_, V) when V /= undefined ->
     V;
 check_presence(C, undefined) ->
     throw({invalid_token, {missing, C}}).
