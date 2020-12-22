@@ -362,23 +362,25 @@ process_request('GetInvoicePaymentMethods', Req, ReqSt0) ->
         [{payproc, #{invoice => InvoiceID}}],
         ReqSt0
     ),
-    Result = construct_payment_methods(
-        invoicing,
-        [_UserInfo = undefined, InvoiceID],
-        PartyID,
-        ReqSt1
-    ),
-    case Result of
-        {ok, PaymentMethods} when is_list(PaymentMethods) ->
-            reply(200, PaymentMethods, ReqSt1);
-        {exception, Exception} ->
-            case Exception of
-                #payproc_InvalidUser{} ->
+    case get_party_revision(PartyID, ReqSt1) of
+        {ok, Revision} ->
+            Result = service_call(
+                invoicing,
+                'ComputeTerms',
+                {_UserInfo = undefined, InvoiceID, {revision, Revision}},
+                ReqSt1
+            ),
+            case Result of
+                {ok, TermSet} ->
+                    reply(200, construct_payment_methods(TermSet), ReqSt1);
+                {exception, #payproc_InvalidUser{}} ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1);
-                #payproc_InvoiceNotFound{} ->
+                {exception, #payproc_InvoiceNotFound{}} ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end;
-        {error, party_inaccessible} ->
+        {exception, #payproc_InvalidUser{}} ->
+            reply_not_found(<<"Invoice not found">>, ReqSt1);
+        {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Invoice not found">>, ReqSt1)
     end;
 
@@ -966,26 +968,27 @@ process_request('GetInvoicePaymentMethodsByTemplateID', Req, ReqSt0) ->
         [{payproc, #{invoice_template => InvoiceTemplateID}}],
         ReqSt0
     ),
-    Result = construct_payment_methods(
-        invoice_templating,
-        [
-            _UserInfo = undefined,
-            InvoiceTemplateID,
-            Timestamp
-        ],
-        PartyID,
-        ReqSt1
-    ),
-    case Result of
-        {ok, PaymentMethods} when is_list(PaymentMethods) ->
-            reply(200, PaymentMethods, ReqSt1);
-        {exception, E} when
-            E == #payproc_InvalidUser{};
-            E == #payproc_InvoiceTemplateNotFound{};
-            E == #payproc_InvoiceTemplateRemoved{}
-        ->
+    case get_party_revision(PartyID, ReqSt1) of
+        {ok, Revision} ->
+            Result = service_call(
+                invoice_templating,
+                'ComputeTerms',
+                {_UserInfo = undefined, InvoiceTemplateID, Timestamp, {revision, Revision}},
+                ReqSt1
+            ),
+            case Result of
+                {ok, TermSet} ->
+                    reply(200, construct_payment_methods(TermSet), ReqSt1);
+                {exception, E} when
+                    E == #payproc_InvalidUser{};
+                    E == #payproc_InvoiceTemplateNotFound{};
+                    E == #payproc_InvoiceTemplateRemoved{}
+                ->
+                    reply_not_found(<<"Invoice template not found">>, ReqSt1)
+            end;
+        {exception, #payproc_InvalidUser{}} ->
             reply_not_found(<<"Invoice template not found">>, ReqSt1);
-        {error, party_inaccessible} ->
+        {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Invoice template not found">>, ReqSt1)
     end;
 
@@ -5089,24 +5092,14 @@ get_events(Limit, After, GetterFun) ->
     },
     GetterFun(EventRange).
 
-construct_payment_methods(ServiceName, Args, PartyID, ReqSt) ->
-    case get_party_revision(PartyID, ReqSt) of
-        {ok, Revision} ->
-            case compute_terms(ServiceName, Args ++ [{revision, Revision}], ReqSt) of
-                {ok, #domain_TermSet{payments = undefined}} ->
-                    {ok, []};
-                {ok, #domain_TermSet{
-                    payments = #domain_PaymentsServiceTerms{
-                        payment_methods = PaymentMethodRefs
-                    }
-                }} ->
-                    {ok, decode_payment_methods(PaymentMethodRefs)};
-                Error ->
-                    Error
-            end;
-        {exception, _} ->
-            {error, party_inaccessible}
-    end.
+construct_payment_methods(#domain_TermSet{payments = undefined}) ->
+    [];
+construct_payment_methods(#domain_TermSet{
+    payments = #domain_PaymentsServiceTerms{
+        payment_methods = PaymentMethodRefs
+    }
+}) ->
+    decode_payment_methods(PaymentMethodRefs).
 
 decode_payment_methods(undefined) ->
     [];
@@ -5171,11 +5164,6 @@ decode_tokenized_bank_card(TokenProvider, PaymentSystems) ->
         <<"paymentSystems">> => lists:map(fun genlib:to_binary/1, PaymentSystems),
         <<"tokenProviders">> => [genlib:to_binary(TokenProvider)]
     }.
-
-compute_terms(ServiceName, Args, ReqSt) ->
-    % TODO
-    % This tuple conversion feels a bit dirty.
-    service_call(ServiceName, 'ComputeTerms', list_to_tuple(Args), ReqSt).
 
 reply_5xx(Code) when Code >= 500 andalso Code < 600 ->
     {Code, #{}, <<>>}.
