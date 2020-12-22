@@ -115,11 +115,10 @@ authorize_operation(Context, {legacy, ACL}) ->
     authorize_operation_legacy(Context, ACL).
 
 authorize_operation_legacy(Context, ACL) ->
-    % FIXME error case?
-    case lists:keyfind(operation, 1, Context) of
-        {operation, #{id := OperationID} = OperationContext} ->
-            authorize_acl(OperationID, OperationContext, ACL)
-    end.
+    % NOTE
+    % Operation context prototype MUST be present here at all times.
+    {operation, #{id := OperationID} = OperationContext} = lists:keyfind(operation, 1, Context),
+    authorize_acl(OperationID, OperationContext, ACL).
 
 authorize_acl(OperationID, OperationContext, ACL) ->
     Access = get_operation_access(OperationID, OperationContext),
