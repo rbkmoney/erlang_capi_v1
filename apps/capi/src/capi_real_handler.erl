@@ -4998,7 +4998,7 @@ get_party(PartyID, ReqSt) ->
 get_party_revision(PartyID, ReqSt) ->
     service_call(
         party_management,
-        'GetGetRevision',
+        'GetRevision',
         {_UserInfo = undefined, PartyID},
         ReqSt
     ).
