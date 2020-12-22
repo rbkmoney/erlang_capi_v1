@@ -69,6 +69,7 @@
     source := key_source(),
     metadata => metadata()
 }.
+
 -type key_source() ::
     {pem_file, file:filename()}.
 
@@ -88,12 +89,15 @@ parse_options(Options) ->
             Metadata = maps:get(metadata, KeyOpts),
             AuthMethod = maps:get(auth_method, Metadata, undefined),
             UserRealm = maps:get(user_realm, Metadata, <<>>),
-            _ = is_keysource(Source) orelse
-                exit({invalid_source, KeyName, Source}),
-            _ = is_auth_method(AuthMethod) orelse
-                exit({invalid_auth_method, KeyName, AuthMethod}),
-            _ = is_binary(UserRealm) orelse
-                exit({invalid_user_realm, KeyName, AuthMethod})
+            _ =
+                is_keysource(Source) orelse
+                    exit({invalid_source, KeyName, Source}),
+            _ =
+                is_auth_method(AuthMethod) orelse
+                    exit({invalid_auth_method, KeyName, AuthMethod}),
+            _ =
+                is_binary(UserRealm) orelse
+                    exit({invalid_user_realm, KeyName, AuthMethod})
         end,
         Keyset
     ),
@@ -327,43 +331,36 @@ check_presence(C, undefined) ->
 -define(CLAIM_EXPIRES_AT, <<"exp">>).
 -define(CLAIM_ACCESS, <<"resource_access">>).
 
--spec get_token_id(claims()) ->
-    token_id().
+-spec get_token_id(claims()) -> token_id().
 get_token_id(#{?CLAIM_TOKEN_ID := Value}) ->
     Value.
 
--spec get_subject_id(claims()) ->
-    subject_id().
+-spec get_subject_id(claims()) -> subject_id().
 get_subject_id(#{?CLAIM_SUBJECT_ID := Value}) ->
     Value.
 
--spec set_subject_id(subject_id(), claims()) ->
-    claims().
+-spec set_subject_id(subject_id(), claims()) -> claims().
 set_subject_id(SubjectID, Claims) ->
     false = maps:is_key(?CLAIM_SUBJECT_ID, Claims),
     Claims#{?CLAIM_SUBJECT_ID => SubjectID}.
 
--spec get_subject_email(claims()) ->
-    binary() | undefined.
+-spec get_subject_email(claims()) -> binary() | undefined.
 get_subject_email(Claims) ->
     maps:get(?CLAIM_SUBJECT_EMAIL, Claims, undefined).
 
--spec set_subject_email(binary(), claims()) ->
-    claims().
+-spec set_subject_email(binary(), claims()) -> claims().
 set_subject_email(SubjectID, Claims) ->
     false = maps:is_key(?CLAIM_SUBJECT_EMAIL, Claims),
     Claims#{?CLAIM_SUBJECT_EMAIL => SubjectID}.
 
--spec get_expires_at(claims()) ->
-    expiration().
+-spec get_expires_at(claims()) -> expiration().
 get_expires_at(Claims) ->
     case maps:get(<<"exp">>, Claims) of
         0 -> unlimited;
         V -> V
     end.
 
--spec set_expires_at(expiration(), claims()) ->
-    claims().
+-spec set_expires_at(expiration(), claims()) -> claims().
 set_expires_at(ExpiresAt, Claims) ->
     false = maps:is_key(?CLAIM_EXPIRES_AT, Claims),
     case ExpiresAt of
@@ -371,15 +368,15 @@ set_expires_at(ExpiresAt, Claims) ->
         Timestamp -> Claims#{?CLAIM_EXPIRES_AT => Timestamp}
     end.
 
--spec get_acl(claims()) ->
-    {ok, capi_acl:t()} | {error, _Reason} | undefined.
+-spec get_acl(claims()) -> {ok, capi_acl:t()} | {error, _Reason} | undefined.
 get_acl(Claims) ->
     case decode_roles(Claims) of
         Roles when Roles /= undefined ->
             try
                 {ok, capi_acl:decode(Roles)}
-            catch error:{badarg, _} = Reason ->
-                {error, {malformed_acl, Reason}}
+            catch
+                error:{badarg, _} = Reason ->
+                    {error, {malformed_acl, Reason}}
             end;
         undefined ->
             undefined
@@ -398,8 +395,7 @@ decode_roles(
 decode_roles(_) ->
     undefined.
 
--spec set_acl(capi_acl:t(), claims()) ->
-    claims().
+-spec set_acl(capi_acl:t(), claims()) -> claims().
 set_acl(ACL, Claims) ->
     false = maps:is_key(?CLAIM_ACCESS, Claims),
     encode_roles(capi_acl:encode(ACL), Claims).

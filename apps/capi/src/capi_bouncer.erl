@@ -29,23 +29,23 @@ extract_context_fragments([Method | Rest], ReqCtx, WoodyCtx) ->
 extract_context_fragments([], _, _) ->
     undefined.
 
--spec judge(capi_bouncer_context:fragments(), woody_context:ctx()) ->
-    capi_auth:resolution().
+-spec judge(capi_bouncer_context:fragments(), woody_context:ctx()) -> capi_auth:resolution().
 judge({Acc, External}, WoodyCtx) ->
-    {ok, RulesetID} = application:get_env(capi, bouncer_ruleset_id), % TODO error out early?
+    % TODO error out early?
+    {ok, RulesetID} = application:get_env(capi, bouncer_ruleset_id),
     JudgeContext = #{fragments => External#{<<"capi">> => Acc}},
     bouncer_client:judge(RulesetID, JudgeContext, WoodyCtx).
 
 %%
 
 extract_context_fragments_by(claim, {Claims, _}, _) ->
-    case get_claim(Claims) of % FIXME handle errors
+    % FIXME handle errors
+    case get_claim(Claims) of
         {ok, ClaimFragment} ->
             {mk_base_fragment(), #{<<"claim">> => ClaimFragment}};
         undefined ->
             undefined
     end;
-
 extract_context_fragments_by(metadata, AuthCtx = {_, Metadata}, WoodyCtx) ->
     case Metadata of
         #{auth_method := AuthMethod} ->
@@ -95,8 +95,7 @@ make_auth_expiration(unlimited) ->
 get_auth_context(#{auth_context := AuthCtx}) ->
     AuthCtx.
 
--spec add_requester_context(swag_server:request_context(), capi_bouncer_context:acc()) ->
-    capi_bouncer_context:acc().
+-spec add_requester_context(swag_server:request_context(), capi_bouncer_context:acc()) -> capi_bouncer_context:acc().
 add_requester_context(ReqCtx, FragmentAcc) ->
     ClientPeer = maps:get(peer, ReqCtx, #{}),
     bouncer_context_helpers:add_requester(
@@ -119,8 +118,7 @@ mk_base_fragment() ->
 -type claim() :: capi_authorizer_jwt:claim().
 -type claims() :: capi_authorizer_jwt:claims().
 
--spec get_claim(claims()) ->
-    {ok, capi_bouncer_context:fragment()} | {error, {unsupported, claim()}} | undefined.
+-spec get_claim(claims()) -> {ok, capi_bouncer_context:fragment()} | {error, {unsupported, claim()}} | undefined.
 get_claim(Claims) ->
     case maps:get(?CLAIM_BOUNCER_CTX, Claims, undefined) of
         Claim when Claim /= undefined ->
@@ -129,8 +127,7 @@ get_claim(Claims) ->
             undefined
     end.
 
--spec decode_claim(claim()) ->
-    {ok, capi_bouncer_context:fragment()} | {error, {unsupported, claim()}}.
+-spec decode_claim(claim()) -> {ok, capi_bouncer_context:fragment()} | {error, {unsupported, claim()}}.
 decode_claim(#{
     ?CLAIM_CTX_TYPE := ?CLAIM_CTX_TYPE_V1_THRIFT_BINARY,
     ?CLAIM_CTX_CONTEXT := Content
@@ -139,23 +136,22 @@ decode_claim(#{
         {encoded_fragment, #bctx_ContextFragment{
             type = v1_thrift_binary,
             content = base64:decode(Content)
-        }}
-    };
+        }}};
 decode_claim(Ctx) ->
     {error, {unsupported, Ctx}}.
 
--spec set_claim(capi_bouncer_context:fragment(), claims()) ->
-    claims().
+-spec set_claim(capi_bouncer_context:fragment(), claims()) -> claims().
 set_claim(ContextFragment, Claims) ->
     false = maps:is_key(?CLAIM_BOUNCER_CTX, Claims),
     Claims#{?CLAIM_BOUNCER_CTX => encode_claim(ContextFragment)}.
 
--spec encode_claim(capi_bouncer_context:fragment()) ->
-    claim().
-encode_claim({encoded_fragment, #bctx_ContextFragment{
-    type = v1_thrift_binary,
-    content = Content
-}}) ->
+-spec encode_claim(capi_bouncer_context:fragment()) -> claim().
+encode_claim(
+    {encoded_fragment, #bctx_ContextFragment{
+        type = v1_thrift_binary,
+        content = Content
+    }}
+) ->
     #{
         ?CLAIM_CTX_TYPE => ?CLAIM_CTX_TYPE_V1_THRIFT_BINARY,
         ?CLAIM_CTX_CONTEXT => base64:encode(Content)

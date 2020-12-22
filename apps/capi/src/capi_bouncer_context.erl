@@ -92,8 +92,7 @@
 
 %%
 
--spec new() ->
-    fragments().
+-spec new() -> fragments().
 new() ->
     {mk_base_fragment(), #{}}.
 
@@ -103,8 +102,7 @@ mk_base_fragment() ->
         deployment => #{id => genlib_app:env(capi, deployment, undefined)}
     }).
 
--spec build(prototype(), fragments(), woody_context:ctx()) ->
-    fragments().
+-spec build(prototype(), fragments(), woody_context:ctx()) -> fragments().
 build(Prototype, {Acc0, External}, WoodyCtx) ->
     Acc1 = lists:foldl(fun({T, Params}, Acc) -> build(T, Params, Acc, WoodyCtx) end, Acc0, Prototype),
     {Acc1, External}.
@@ -130,40 +128,54 @@ build(operation, Params = #{id := OperationID}, Acc, _WoodyCtx) ->
             }
         }
     };
-
 build(payproc, Params = #{}, Acc, WoodyCtx) ->
     Acc#bctx_v1_ContextFragment{
         payment_processing = #bctx_v1_ContextPaymentProcessing{
-            invoice = maybe_with(invoice, Params,
-                fun(V) -> build_invoice_ctx(V, WoodyCtx) end),
-            invoice_template = maybe_with(invoice_template, Params,
-                fun(V) -> build_invoice_template_ctx(V, WoodyCtx) end),
-            customer = maybe_with(customer, Params,
-                fun(V) -> build_customer_ctx(V, WoodyCtx) end)
+            invoice = maybe_with(
+                invoice,
+                Params,
+                fun(V) -> build_invoice_ctx(V, WoodyCtx) end
+            ),
+            invoice_template = maybe_with(
+                invoice_template,
+                Params,
+                fun(V) -> build_invoice_template_ctx(V, WoodyCtx) end
+            ),
+            customer = maybe_with(
+                customer,
+                Params,
+                fun(V) -> build_customer_ctx(V, WoodyCtx) end
+            )
         }
     };
-
 build(webhooks, Params = #{}, Acc, WoodyCtx) ->
     Acc#bctx_v1_ContextFragment{
         webhooks = #bctx_v1_ContextWebhooks{
-            webhook = maybe_with(webhook, Params,
-                fun(V) -> build_webhook_ctx(V, WoodyCtx) end)
+            webhook = maybe_with(
+                webhook,
+                Params,
+                fun(V) -> build_webhook_ctx(V, WoodyCtx) end
+            )
         }
     };
-
 build(reports, Params = #{}, Acc, WoodyCtx) ->
     Acc#bctx_v1_ContextFragment{
         reports = #bctx_v1_ContextReports{
-            report = maybe_with(report, Params,
-                fun(V) -> build_report_ctx(V, WoodyCtx) end)
+            report = maybe_with(
+                report,
+                Params,
+                fun(V) -> build_report_ctx(V, WoodyCtx) end
+            )
         }
     };
-
 build(payouts, Params = #{}, Acc, WoodyCtx) ->
     Acc#bctx_v1_ContextFragment{
         payouts = #bctx_v1_ContextPayouts{
-            payout = maybe_with(payout, Params,
-                fun(V) -> build_payout_ctx(V, WoodyCtx) end)
+            payout = maybe_with(
+                payout,
+                Params,
+                fun(V) -> build_payout_ctx(V, WoodyCtx) end
+            )
         }
     }.
 
@@ -180,8 +192,13 @@ build_op_webhook_ctx(#webhooker_WebhookParams{party_id = PartyID, event_filter =
 %%
 
 build_invoice_ctx(ID, WoodyCtx) when is_binary(ID) ->
-    maybe_with_woody_result(invoicing, 'Get', {_UserInfo = undefined, ID, #payproc_EventRange{}}, WoodyCtx,
-        fun build_invoice_ctx/1);
+    maybe_with_woody_result(
+        invoicing,
+        'Get',
+        {_UserInfo = undefined, ID, #payproc_EventRange{}},
+        WoodyCtx,
+        fun build_invoice_ctx/1
+    );
 build_invoice_ctx(Invoice, _WoodyCtx) ->
     build_invoice_ctx(Invoice).
 
@@ -203,8 +220,13 @@ build_refund_ctx(#payproc_InvoicePaymentRefund{refund = Refund}) ->
     build_entity(Refund#domain_InvoicePaymentRefund.id).
 
 build_invoice_template_ctx(ID, WoodyCtx) when is_binary(ID) ->
-    maybe_with_woody_result(invoice_templating, 'Get', {_UserInfo = undefined, ID}, WoodyCtx,
-        fun build_invoice_template_ctx/1);
+    maybe_with_woody_result(
+        invoice_templating,
+        'Get',
+        {_UserInfo = undefined, ID},
+        WoodyCtx,
+        fun build_invoice_template_ctx/1
+    );
 build_invoice_template_ctx(InvoiceTemplate, _WoodyCtx) ->
     build_invoice_template_ctx(InvoiceTemplate).
 
@@ -216,8 +238,13 @@ build_invoice_template_ctx(#domain_InvoiceTemplate{id = ID, owner_id = OwnerID, 
     }.
 
 build_customer_ctx(ID, WoodyCtx) when is_binary(ID) ->
-    maybe_with_woody_result(customer_management, 'Get', {ID, #payproc_EventRange{}}, WoodyCtx,
-        fun build_customer_ctx/1);
+    maybe_with_woody_result(
+        customer_management,
+        'Get',
+        {ID, #payproc_EventRange{}},
+        WoodyCtx,
+        fun build_customer_ctx/1
+    );
 build_customer_ctx(Customer, _WoodyCtx) ->
     build_customer_ctx(Customer).
 

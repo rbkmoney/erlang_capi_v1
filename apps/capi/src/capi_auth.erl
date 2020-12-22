@@ -21,12 +21,12 @@
 -type context() :: {claims(), capi_authorizer_jwt:metadata()}.
 
 -type provider() ::
-    {bouncer, capi_bouncer_context:fragments(), woody_context:ctx()} |
-    {legacy, capi_acl:t()}.
+    {bouncer, capi_bouncer_context:fragments(), woody_context:ctx()}
+    | {legacy, capi_acl:t()}.
 
 -type resolution() ::
-    allowed |
-    forbidden.
+    allowed
+    | forbidden.
 
 -export_type([context/0]).
 -export_type([provider/0]).
@@ -122,12 +122,14 @@ authorize_operation_legacy(Context, ACL) ->
 
 authorize_acl(OperationID, OperationContext, ACL) ->
     Access = get_operation_access(OperationID, OperationContext),
-    case lists:all(
-        fun({Scope, Permission}) ->
-            lists:member(Permission, capi_acl:match(Scope, ACL))
-        end,
-        Access
-    ) of
+    case
+        lists:all(
+            fun({Scope, Permission}) ->
+                lists:member(Permission, capi_acl:match(Scope, ACL))
+            end,
+            Access
+        )
+    of
         true ->
             allowed;
         false ->
