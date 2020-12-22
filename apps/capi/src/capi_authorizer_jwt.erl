@@ -357,14 +357,17 @@ set_subject_email(SubjectID, Claims) ->
 -spec get_expires_at(claims()) ->
     expiration().
 get_expires_at(Claims) ->
-    maps:get(<<"exp">>, Claims, unlimited).
+    case maps:get(<<"exp">>, Claims) of
+        0 -> unlimited;
+        V -> V
+    end.
 
 -spec set_expires_at(expiration(), claims()) ->
     claims().
 set_expires_at(ExpiresAt, Claims) ->
     false = maps:is_key(?CLAIM_EXPIRES_AT, Claims),
     case ExpiresAt of
-        unlimited -> Claims;
+        unlimited -> Claims#{?CLAIM_EXPIRES_AT => 0};
         Timestamp -> Claims#{?CLAIM_EXPIRES_AT => Timestamp}
     end.
 
