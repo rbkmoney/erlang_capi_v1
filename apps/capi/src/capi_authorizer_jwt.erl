@@ -344,9 +344,9 @@ set_subject_id(SubjectID, Claims) ->
     Claims#{?CLAIM_SUBJECT_ID => SubjectID}.
 
 -spec get_subject_email(claims()) ->
-    binary().
-get_subject_email(#{?CLAIM_SUBJECT_EMAIL := Value}) ->
-    Value.
+    binary() | undefined.
+get_subject_email(Claims) ->
+    maps:get(?CLAIM_SUBJECT_EMAIL, Claims, undefined).
 
 -spec set_subject_email(binary(), claims()) ->
     claims().
