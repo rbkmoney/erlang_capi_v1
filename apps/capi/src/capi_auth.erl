@@ -194,9 +194,10 @@ issue_invoice_template_access_token(PartyID, InvoiceTplID, Claims) ->
             method => ?AUTH_METHOD_INVTPL_ACCESS_TOKEN,
             expiration => make_auth_expiration(unlimited),
             scope => [
-                #{party => #{id => PartyID}}
-                % FIXME
-                % #{invoice_template => #{id => InvoiceTplID}}
+                #{
+                    party => #{id => PartyID},
+                    invoice_template => #{id => InvoiceTplID}
+                }
             ]
         }
     ),
@@ -222,9 +223,10 @@ issue_customer_access_token(PartyID, CustomerID, Claims) ->
             method => ?AUTH_METHOD_CUSTOMER_ACCESS_TOKEN,
             expiration => make_auth_expiration(ExpiresAt),
             scope => [
-                #{party => #{id => PartyID}}
-                % FIXME
-                % #{customer => #{id => CustomerID}}
+                #{
+                    party => #{id => PartyID},
+                    customer => #{id => CustomerID}
+                }
             ]
         }
     ),

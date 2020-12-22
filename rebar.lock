@@ -8,7 +8,7 @@
   0},
  {<<"bouncer_client">>,
   {git,"https://github.com/rbkmoney/bouncer_client_erlang.git",
-       {ref,"73744dfad3a2437eaf88ca7d7878cca7eb34adc9"}},
+       {ref,"921f52f2d0463e77f1a5b2ac8d8db2975d81a073"}},
   0},
  {<<"bouncer_proto">>,
   {git,"git@github.com:rbkmoney/bouncer-proto.git",
