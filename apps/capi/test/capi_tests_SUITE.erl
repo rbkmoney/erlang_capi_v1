@@ -313,7 +313,10 @@ init_per_suite(Config) ->
             {
                 'Repository',
                 {dmsl_domain_config_thrift, 'Repository'},
-                fun('Checkout', _) -> {ok, ?SNAPSHOT} end
+                fun
+                    ('Checkout', _) -> {ok, ?SNAPSHOT};
+                    ('PullRange', _) -> {ok, #{}}
+                end
             }
         ],
         SupPid
