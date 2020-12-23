@@ -1535,6 +1535,7 @@ start_capi(Config) ->
     CapiEnv = [
         {ip, ?CAPI_IP},
         {port, ?CAPI_PORT},
+        {graceful_shutdown_timeout, 0},
         {authorizers, #{
             jwt => #{
                 signee => capi,
