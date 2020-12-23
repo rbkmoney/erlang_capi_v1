@@ -14,7 +14,9 @@
 -include_lib("damsel/include/dmsl_merch_stat_thrift.hrl").
 -include_lib("reporter_proto/include/reporter_reports_thrift.hrl").
 -include_lib("damsel/include/dmsl_payment_tool_provider_thrift.hrl").
+-include_lib("damsel/include/dmsl_payout_processing_thrift.hrl").
 -include_lib("jose/include/jose_jwk.hrl").
+-include_lib("bouncer_proto/include/bouncer_decisions_thrift.hrl").
 
 -export([all/0]).
 -export([groups/0]).
@@ -306,8 +308,48 @@ groups() ->
 -spec init_per_suite(config()) -> config().
 init_per_suite(Config) ->
     SupPid = start_mocked_service_sup(),
-    Apps1 =
-        capi_ct_helper:start_app(woody),
+    ok = logger:set_primary_config(level, info),
+    Apps =
+        capi_ct_helper:start_app(woody) ++
+            start_dmt_client(SupPid) ++
+            start_bouncer_client(SupPid) ++
+            start_capi(Config),
+    [{apps, Apps}, {suite_test_sup, SupPid} | Config].
+
+start_bouncer_client(SupPid) ->
+    ServiceURLs = mock_services_(
+        [
+            {
+                bouncer,
+                {bouncer_decisions_thrift, 'Arbiter'},
+                fun('Judge', {?TEST_RULESET_ID, _}) ->
+                    {ok, #bdcs_Judgement{
+                        resolution = {allowed, #bdcs_ResolutionAllowed{}},
+                        resolution_legacy = allowed
+                    }}
+                end
+            },
+            {
+                org_management,
+                {orgmgmt_auth_context_provider_thrift, 'AuthContextProvider'},
+                fun('GetUserContext', {UserID}) ->
+                    {encoded_fragment, Fragment} = bouncer_client:bake_context_fragment(
+                        bouncer_context_helpers:make_user_fragment(#{
+                            id => UserID,
+                            realm => #{id => ?TEST_USER_REALM},
+                            orgs => [#{id => ?STRING, owner => #{id => UserID}}]
+                        })
+                    ),
+                    {ok, Fragment}
+                end
+            }
+        ],
+        SupPid
+    ),
+    ServiceClients = maps:map(fun(_, URL) -> #{url => URL} end, ServiceURLs),
+    capi_ct_helper:start_app(bouncer_client, [{service_clients, ServiceClients}]).
+
+start_dmt_client(SupPid) ->
     ServiceURLs = mock_services_(
         [
             {
@@ -321,15 +363,12 @@ init_per_suite(Config) ->
         ],
         SupPid
     ),
-    Apps2 =
-        capi_ct_helper:start_app(dmt_client, [{max_cache_size, #{}}, {service_urls, ServiceURLs}]) ++
-            start_capi(Config),
-    [{apps, lists:reverse(Apps2 ++ Apps1)}, {suite_test_sup, SupPid} | Config].
+    capi_ct_helper:start_app(dmt_client, [{max_cache_size, #{}}, {service_urls, ServiceURLs}]).
 
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     _ = stop_mocked_service_sup(?config(suite_test_sup, C)),
-    [application:stop(App) || App <- proplists:get_value(apps, C)],
+    [application:stop(App) || App <- lists:reverse(proplists:get_value(apps, C))],
     ok.
 
 -spec init_per_group(group_name(), config()) -> config().
@@ -341,7 +380,7 @@ init_per_group(operations_by_invoice_access_token_after_invoice_creation, Config
             {bender, fun('GenerateID', _) ->
                 {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)}
             end},
-            {invoicing, fun('Create', [_, #payproc_InvoiceParams{id = <<"bender_key">>}]) ->
+            {invoicing, fun('Create', {_, #payproc_InvoiceParams{id = <<"bender_key">>}}) ->
                 {ok, ?PAYPROC_INVOICE}
             end}
         ],
@@ -542,7 +581,7 @@ create_invoice_ok_test(Config) ->
     mock_services(
         [
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"key">>)} end},
-            {invoicing, fun('Create', [_, #payproc_InvoiceParams{id = <<"key">>}]) -> {ok, ?PAYPROC_INVOICE} end}
+            {invoicing, fun('Create', {_, #payproc_InvoiceParams{id = <<"key">>}}) -> {ok, ?PAYPROC_INVOICE} end}
         ],
         Config
     ),
@@ -562,7 +601,8 @@ create_invoice_with_tpl_ok_test(Config) ->
     mock_services(
         [
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"key">>)} end},
-            {invoicing, fun('CreateWithTemplate', [_, #payproc_InvoiceWithTemplateParams{id = <<"key">>}]) ->
+            {invoice_templating, fun('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL} end},
+            {invoicing, fun('CreateWithTemplate', {_, #payproc_InvoiceWithTemplateParams{id = <<"key">>}}) ->
                 {ok, ?PAYPROC_INVOICE}
             end}
         ],
@@ -593,21 +633,24 @@ get_invoice_events_ok_test(Config) ->
     end,
     _ = mock_services(
         [
-            {invoicing, fun('GetEvents', [_, _, #payproc_EventRange{'after' = ID, limit = N}]) ->
-                {ok,
-                    lists:sublist(
-                        [
-                            ?INVOICE_EVENT(1),
-                            ?INVOICE_EVENT(2),
-                            ?INVOICE_EVENT_PRIVATE(3),
-                            ?INVOICE_EVENT(4),
-                            ?INVOICE_EVENT_PRIVATE(5),
-                            ?INVOICE_EVENT_PRIVATE(6),
-                            ?INVOICE_EVENT(7)
-                        ],
-                        Inc(ID),
-                        N
-                    )}
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) ->
+                    {ok, ?PAYPROC_INVOICE};
+                ('GetEvents', {_, _, #payproc_EventRange{'after' = ID, limit = N}}) ->
+                    {ok,
+                        lists:sublist(
+                            [
+                                ?INVOICE_EVENT(1),
+                                ?INVOICE_EVENT(2),
+                                ?INVOICE_EVENT_PRIVATE(3),
+                                ?INVOICE_EVENT(4),
+                                ?INVOICE_EVENT_PRIVATE(5),
+                                ?INVOICE_EVENT_PRIVATE(6),
+                                ?INVOICE_EVENT(7)
+                            ],
+                            Inc(ID),
+                            N
+                        )}
             end}
         ],
         Config
@@ -621,8 +664,11 @@ get_invoice_events_ok_test(Config) ->
 get_invoice_payment_methods_ok_test(Config) ->
     mock_services(
         [
-            {party_management, fun('Get', _) -> {ok, ?PARTY} end},
-            {invoicing, fun('ComputeTerms', _) -> {ok, ?TERM_SET} end}
+            {party_management, fun('GetRevision', _) -> {ok, ?INTEGER} end},
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
+                ('ComputeTerms', {_, ?STRING, _}) -> {ok, ?TERM_SET}
+            end}
         ],
         Config
     ),
@@ -635,12 +681,28 @@ create_invoice_access_token_ok_test(Config) ->
 
 -spec rescind_invoice_ok_test(config()) -> _.
 rescind_invoice_ok_test(Config) ->
-    mock_services([{invoicing, fun('Rescind', _) -> {ok, ok} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
+                ('Rescind', {_, ?STRING, ?STRING}) -> {ok, ok}
+            end}
+        ],
+        Config
+    ),
     ok = capi_client_invoices:rescind_invoice(?config(context, Config), ?STRING, ?STRING).
 
 -spec fulfill_invoice_ok_test(config()) -> _.
 fulfill_invoice_ok_test(Config) ->
-    mock_services([{invoicing, fun('Fulfill', _) -> {ok, ok} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
+                ('Fulfill', {_, ?STRING, ?STRING}) -> {ok, ok}
+            end}
+        ],
+        Config
+    ),
     ok = capi_client_invoices:fulfill_invoice(?config(context, Config), ?STRING, ?STRING).
 
 -spec create_invoice_template_ok_test(config()) -> _.
@@ -667,7 +729,15 @@ get_invoice_template_ok_test(Config) ->
 
 -spec update_invoice_template_ok_test(config()) -> _.
 update_invoice_template_ok_test(Config) ->
-    mock_services([{invoice_templating, fun('Update', _) -> {ok, ?INVOICE_TPL} end}], Config),
+    mock_services(
+        [
+            {invoice_templating, fun
+                ('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL};
+                ('Update', {_, ?STRING, _}) -> {ok, ?INVOICE_TPL}
+            end}
+        ],
+        Config
+    ),
     Req = #{
         <<"cost">> => #{
             <<"invoiceTemplateCostType">> => <<"InvoiceTemplateCostFixed">>,
@@ -683,15 +753,26 @@ update_invoice_template_ok_test(Config) ->
 
 -spec delete_invoice_template_ok_test(config()) -> _.
 delete_invoice_template_ok_test(Config) ->
-    mock_services([{invoice_templating, fun('Delete', _) -> {ok, ok} end}], Config),
+    mock_services(
+        [
+            {invoice_templating, fun
+                ('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL};
+                ('Delete', {_, ?STRING}) -> {ok, ok}
+            end}
+        ],
+        Config
+    ),
     ok = capi_client_invoice_templates:delete(?config(context, Config), ?STRING).
 
 -spec get_invoice_payment_methods_by_tpl_id_ok_test(config()) -> _.
 get_invoice_payment_methods_by_tpl_id_ok_test(Config) ->
     mock_services(
         [
-            {party_management, fun('Get', _) -> {ok, ?PARTY} end},
-            {'invoice_templating', fun('ComputeTerms', _) -> {ok, ?TERM_SET} end}
+            {party_management, fun('GetRevision', _) -> {ok, ?INTEGER} end},
+            {'invoice_templating', fun
+                ('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL};
+                ('ComputeTerms', {_, ?STRING, _, _}) -> {ok, ?TERM_SET}
+            end}
         ],
         Config
     ),
@@ -706,15 +787,17 @@ get_account_by_id_ok_test(Config) ->
 create_payment_ok_test(Config) ->
     mock_services(
         [
-            {invoicing, fun(
-                'StartPayment',
-                [_, <<"TEST">>, #payproc_InvoicePaymentParams{id = <<"payment_key">>}]
-            ) ->
-                {ok, ?PAYPROC_PAYMENT}
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) ->
+                    {ok, ?PAYPROC_INVOICE};
+                ('StartPayment', {_, ?STRING, ?PAYMENT_PARAMS(<<"payment_key">>)}) ->
+                    {ok, ?PAYPROC_PAYMENT}
             end},
             {bender, fun
-                ('GenerateID', [_, {sequence, _}, _]) -> {ok, capi_ct_helper_bender:get_result(<<"payment_key">>)};
-                ('GenerateID', [_, {constant, _}, _]) -> {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
+                ('GenerateID', {_, {sequence, _}, _}) ->
+                    {ok, capi_ct_helper_bender:get_result(<<"payment_key">>)};
+                ('GenerateID', {_, {constant, _}, _}) ->
+                    {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
             end}
         ],
         Config
@@ -735,6 +818,12 @@ create_payment_ok_test(Config) ->
 
 -spec create_payment_expired_test(config()) -> _.
 create_payment_expired_test(Config) ->
+    mock_services(
+        [
+            {invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE} end}
+        ],
+        Config
+    ),
     PaymentTool = {bank_card, ?BANK_CARD},
     ValidUntil = capi_utils:deadline_from_timeout(0),
     PaymentToolToken = capi_crypto:create_encrypted_payment_tool_token(PaymentTool, ValidUntil),
@@ -761,16 +850,16 @@ create_payment_with_encrypt_token_ok_test(Config) ->
     BenderKey = <<"payment_key">>,
     mock_services(
         [
-            {invoicing, fun(
-                'StartPayment',
-                [_, <<"TEST">>, #payproc_InvoicePaymentParams{id = <<"payment_key">>}]
-            ) ->
-                {ok, ?PAYPROC_PAYMENT}
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) ->
+                    {ok, ?PAYPROC_INVOICE};
+                ('StartPayment', {_, ?STRING, ?PAYMENT_PARAMS(<<"payment_key">>)}) ->
+                    {ok, ?PAYPROC_PAYMENT}
             end},
             {bender, fun
-                ('GenerateID', [_, {sequence, _}, CtxMsgPack]) ->
+                ('GenerateID', {_, {sequence, _}, CtxMsgPack}) ->
                     capi_ct_helper_bender:get_internal_id(Tid, BenderKey, CtxMsgPack);
-                ('GenerateID', [_, {constant, _}, _]) ->
+                ('GenerateID', {_, {constant, _}, _}) ->
                     {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
             end}
         ],
@@ -808,12 +897,17 @@ get_encrypted_token() ->
 
 -spec get_payments_ok_test(config()) -> _.
 get_payments_ok_test(Config) ->
-    mock_services([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], Config),
+    mock_services([{invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE} end}], Config),
     {ok, _} = capi_client_payments:get_payments(?config(context, Config), ?STRING).
 
 -spec get_payment_by_id_ok_test(config()) -> _.
 get_payment_by_id_ok_test(Config) ->
-    mock_services([{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_PAYMENT} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])} end}
+        ],
+        Config
+    ),
     {ok, _} = capi_client_payments:get_payment_by_id(?config(context, Config), ?STRING, ?STRING).
 
 -spec get_payment_by_id_error_test(config()) -> _.
@@ -825,7 +919,14 @@ get_payment_by_id_error_test(Config) ->
                 {payment_tool_rejected, {bank_card_rejected, {cvv_invalid, #payprocerr_GeneralFailure{}}}}},
             <<"Reason">>
         ),
-    mock_services([{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_FAILED_PAYMENT({failure, Failure})} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun('Get', {_, ?STRING, _}) ->
+                {ok, ?PAYPROC_INVOICE([?PAYPROC_FAILED_PAYMENT({failure, Failure})])}
+            end}
+        ],
+        Config
+    ),
     {ok, #{
         <<"error">> := #{
             <<"message">> := <<"authorization_failed:payment_tool_rejected:bank_card_rejected:cvv_invalid">>
@@ -837,7 +938,10 @@ create_refund(Config) ->
     mock_services(
         [
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)} end},
-            {invoicing, fun('RefundPayment', _) -> {ok, ?REFUND_DOMAIN} end}
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
+                ('RefundPayment', {_, ?STRING, ?STRING, _}) -> {ok, ?REFUND_DOMAIN}
+            end}
         ],
         Config
     ),
@@ -849,13 +953,13 @@ create_refund_idemp_ok_test(Config) ->
     BenderKey = <<"bender_key">>,
     mock_services(
         [
-            {invoicing, fun(
-                'RefundPayment',
-                [_, _, _, #payproc_InvoicePaymentRefundParams{id = ID}]
-            ) ->
-                {ok, ?REFUND_DOMAIN(ID)}
-            end},
-            {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(BenderKey)} end}
+            {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(BenderKey)} end},
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) ->
+                    {ok, ?PAYPROC_INVOICE};
+                ('RefundPayment', {_, ?STRING, ?STRING, ?REFUND_PARAMS(ID)}) ->
+                    {ok, ?REFUND_DOMAIN(ID)}
+            end}
         ],
         Config
     ),
@@ -873,7 +977,12 @@ create_partial_refund(Config) ->
     mock_services(
         [
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)} end},
-            {invoicing, fun('RefundPayment', _) -> {ok, ?REFUND_DOMAIN} end}
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) ->
+                    {ok, ?PAYPROC_INVOICE};
+                ('RefundPayment', {_, ?STRING, ?STRING, ?REFUND_PARAMS(_, ?INTEGER, ?RUB)}) ->
+                    {ok, ?REFUND_DOMAIN}
+            end}
         ],
         Config
     ),
@@ -892,6 +1001,8 @@ create_partial_refund_without_currency(Config) ->
             {
                 invoicing,
                 fun
+                    ('Get', {_, ?STRING, _}) ->
+                        {ok, ?PAYPROC_INVOICE};
                     ('GetPayment', _) ->
                         {ok, ?PAYPROC_PAYMENT};
                     ('RefundPayment', _) ->
@@ -909,22 +1020,51 @@ create_partial_refund_without_currency(Config) ->
 
 -spec get_refund_by_id(config()) -> _.
 get_refund_by_id(Config) ->
-    mock_services([{invoicing, fun('GetPaymentRefund', _) -> {ok, ?REFUND_DOMAIN} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])} end}
+        ],
+        Config
+    ),
     {ok, _} = capi_client_payments:get_refund_by_id(?config(context, Config), ?STRING, ?STRING, ?STRING).
 
 -spec get_refunds(config()) -> _.
 get_refunds(Config) ->
-    mock_services([{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_PAYMENT} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
+                ('GetPayment', {_, ?STRING, ?STRING}) -> {ok, ?PAYPROC_PAYMENT}
+            end}
+        ],
+        Config
+    ),
     {ok, _} = capi_client_payments:get_refunds(?config(context, Config), ?STRING, ?STRING).
 
 -spec cancel_payment_ok_test(config()) -> _.
 cancel_payment_ok_test(Config) ->
-    mock_services([{invoicing, fun('CancelPayment', _) -> {ok, ok} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
+                ('CancelPayment', {_, ?STRING, ?STRING, _}) -> {ok, ok}
+            end}
+        ],
+        Config
+    ),
     ok = capi_client_payments:cancel_payment(?config(context, Config), ?STRING, ?STRING, ?STRING).
 
 -spec capture_payment_ok_test(config()) -> _.
 capture_payment_ok_test(Config) ->
-    mock_services([{invoicing, fun('CapturePaymentNew', _) -> {ok, ok} end}], Config),
+    mock_services(
+        [
+            {invoicing, fun
+                ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
+                ('CapturePaymentNew', {_, ?STRING, ?STRING, _}) -> {ok, ok}
+            end}
+        ],
+        Config
+    ),
     ok = capi_client_payments:capture_payment(?config(context, Config), ?STRING, ?STRING, ?STRING).
 
 -spec get_my_party_ok_test(config()) -> _.
@@ -1159,7 +1299,14 @@ get_locations_names_ok_test(Config) ->
 
 -spec search_invoices_ok_test(config()) -> _.
 search_invoices_ok_test(Config) ->
-    mock_services([{merchant_stat, fun('GetInvoices', _) -> {ok, ?STAT_RESPONSE_INVOICES} end}], Config),
+    QueryInvoiceID = <<"testInvoiceID">>,
+    mock_services(
+        [
+            {invoicing, fun('Get', {_, ID, _}) when ID == QueryInvoiceID -> {ok, ?PAYPROC_INVOICE} end},
+            {merchant_stat, fun('GetInvoices', _) -> {ok, ?STAT_RESPONSE_INVOICES} end}
+        ],
+        Config
+    ),
     Query = [
         {limit, 2},
         {offset, 2},
@@ -1171,7 +1318,7 @@ search_invoices_ok_test(Config) ->
         {paymentStatus, <<"processed">>},
         {paymentFlow, <<"instant">>},
         {paymentMethod, <<"bankCard">>},
-        {invoiceID, <<"testInvoiceID">>},
+        {invoiceID, QueryInvoiceID},
         {paymentID, <<"testPaymentID">>},
         {payerFingerprint, <<"blablablalbalbal">>},
         {lastDigits, <<"2222">>},
@@ -1184,7 +1331,14 @@ search_invoices_ok_test(Config) ->
 
 -spec search_payments_ok_test(config()) -> _.
 search_payments_ok_test(Config) ->
-    mock_services([{merchant_stat, fun('GetPayments', _) -> {ok, ?STAT_RESPONSE_PAYMENTS} end}], Config),
+    QueryInvoiceID = <<"testInvoiceID">>,
+    mock_services(
+        [
+            {invoicing, fun('Get', {_, ID, _}) when ID == QueryInvoiceID -> {ok, ?PAYPROC_INVOICE} end},
+            {merchant_stat, fun('GetPayments', _) -> {ok, ?STAT_RESPONSE_PAYMENTS} end}
+        ],
+        Config
+    ),
     Query = [
         {limit, 2},
         {offset, 2},
@@ -1216,14 +1370,23 @@ search_payments_ok_test(Config) ->
 
 -spec search_payouts_ok_test(config()) -> _.
 search_payouts_ok_test(Config) ->
-    mock_services([{merchant_stat, fun('GetPayouts', _) -> {ok, ?STAT_RESPONSE_PAYOUTS} end}], Config),
+    QueryPayoutID = <<"testInvoiceID">>,
+    mock_services(
+        [
+            {payout_management, fun('Get', {ID}) when ID == QueryPayoutID ->
+                {ok, ?PAYOUT(?PAYOUT_BANK_ACCOUNT_RUS, [?PAYOUT_SUMMARY_ITEM])}
+            end},
+            {merchant_stat, fun('GetPayouts', _) -> {ok, ?STAT_RESPONSE_PAYOUTS} end}
+        ],
+        Config
+    ),
     Query = [
         {limit, 2},
         {offset, 2},
         {from_time, {{2015, 08, 11}, {19, 42, 35}}},
         {to_time, {{2020, 08, 11}, {19, 42, 35}}},
         {shopID, <<"testShopID">>},
-        {payoutID, <<"testPayoutID">>},
+        {payoutID, QueryPayoutID},
         {payoutToolType, <<"PayoutCard">>}
     ],
 
@@ -1407,7 +1570,10 @@ create_binding_ok_test(Config) ->
     mock_services(
         [
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)} end},
-            {customer_management, fun('StartBinding', _) -> {ok, ?CUSTOMER_BINDING} end}
+            {customer_management, fun
+                ('Get', {?STRING, _}) -> {ok, ?CUSTOMER};
+                ('StartBinding', {?STRING, _}) -> {ok, ?CUSTOMER_BINDING}
+            end}
         ],
         Config
     ),
@@ -1422,6 +1588,12 @@ create_binding_ok_test(Config) ->
 
 -spec create_binding_expired_test(config()) -> _.
 create_binding_expired_test(Config) ->
+    mock_services(
+        [
+            {customer_management, fun('Get', {?STRING, _}) -> {ok, ?CUSTOMER} end}
+        ],
+        Config
+    ),
     PaymentTool = {bank_card, ?BANK_CARD},
     ValidUntil = capi_utils:deadline_from_timeout(0),
     PaymentToolToken = capi_crypto:create_encrypted_payment_tool_token(PaymentTool, ValidUntil),
@@ -1446,12 +1618,28 @@ get_binding_ok_test(Config) ->
 
 -spec get_customer_events_ok_test(config()) -> _.
 get_customer_events_ok_test(Config) ->
-    mock_services([{customer_management, fun('GetEvents', _) -> {ok, []} end}], Config),
+    mock_services(
+        [
+            {customer_management, fun
+                ('Get', {?STRING, _}) -> {ok, ?CUSTOMER};
+                ('GetEvents', _) -> {ok, []}
+            end}
+        ],
+        Config
+    ),
     {ok, _} = capi_client_customers:get_customer_events(?config(context, Config), ?STRING, 10).
 
 -spec delete_customer_ok_test(config()) -> _.
 delete_customer_ok_test(Config) ->
-    mock_services([{customer_management, fun('Delete', _) -> {ok, ok} end}], Config),
+    mock_services(
+        [
+            {customer_management, fun
+                ('Get', {?STRING, _}) -> {ok, ?CUSTOMER};
+                ('Delete', _) -> {ok, ok}
+            end}
+        ],
+        Config
+    ),
     {ok, _} = capi_client_customers:delete_customer(?config(context, Config), ?STRING).
 
 -spec check_support_decrypt_v1_test(config()) -> _.
