@@ -327,7 +327,7 @@ end_per_suite(C) ->
 -spec init_per_group(group_name(), config()) -> config().
 init_per_group(operations_by_invoice_access_token_after_invoice_creation, Config) ->
     MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token([{[invoices], write}], unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, [{[invoices], write}], unlimited),
     mock_services(
         [
             {bender, fun('GenerateID', _) ->
@@ -355,7 +355,7 @@ init_per_group(operations_by_invoice_access_token_after_invoice_creation, Config
     [{context, get_context(InvAccToken)} | Config];
 init_per_group(operations_by_invoice_access_token_after_token_creation, Config) ->
     MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token([{[invoices], write}], unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, [{[invoices], write}], unlimited),
     mock_services([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], MockServiceSup),
     {ok, #{<<"payload">> := InvAccToken}} = capi_client_invoices:create_invoice_access_token(
         get_context(Token),
@@ -365,7 +365,7 @@ init_per_group(operations_by_invoice_access_token_after_token_creation, Config) 
     [{context, get_context(InvAccToken)} | Config];
 init_per_group(operations_by_invoice_template_access_token, Config) ->
     MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token([{[party], write}], unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, [{[party], write}], unlimited),
     mock_services([{invoice_templating, fun('Create', _) -> {ok, ?INVOICE_TPL} end}], MockServiceSup),
     Req = #{
         <<"shopID">> => ?STRING,
@@ -386,7 +386,7 @@ init_per_group(operations_by_invoice_template_access_token, Config) ->
     [{context, get_context(InvTemplAccToken)} | Config];
 init_per_group(operations_by_customer_access_token_after_customer_creation, Config) ->
     MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token([{[customers], write}], unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, [{[customers], write}], unlimited),
     mock_services([{customer_management, fun('Create', _) -> {ok, ?CUSTOMER} end}], MockServiceSup),
     Req = #{
         <<"shopID">> => ?STRING,
@@ -400,7 +400,7 @@ init_per_group(operations_by_customer_access_token_after_customer_creation, Conf
     [{context, get_context(CustAccToken)} | Config];
 init_per_group(operations_by_customer_access_token_after_token_creation, Config) ->
     MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token([{[customers], write}], unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, [{[customers], write}], unlimited),
     mock_services([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], MockServiceSup),
     {ok, #{<<"payload">> := CustAccToken}} = capi_client_customers:create_customer_access_token(
         get_context(Token),
@@ -418,7 +418,7 @@ init_per_group(GroupName, Config) when GroupName == operations_by_base_api_token
         {[invoices, payments], read},
         {[customers], write}
     ],
-    {ok, Token} = issue_token(BasePermissions, unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, BasePermissions, unlimited),
     Context = get_context(Token),
     [{context, Context} | Config];
 init_per_group(_, Config) ->
@@ -480,24 +480,24 @@ woody_unknown_test(Config) ->
 
 -spec authorization_positive_lifetime_ok_test(config()) -> _.
 authorization_positive_lifetime_ok_test(_Config) ->
-    {ok, Token} = issue_token([], {lifetime, 10}),
+    {ok, Token} = issue_token(capi, ?STRING, [], {lifetime, 10}),
     {ok, _} = capi_client_categories:get_categories(get_context(Token)).
 
 -spec authorization_unlimited_lifetime_ok_test(config()) -> _.
 authorization_unlimited_lifetime_ok_test(_Config) ->
-    {ok, Token} = issue_token([], unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, [], unlimited),
     {ok, _} = capi_client_categories:get_categories(get_context(Token)).
 
 -spec authorization_far_future_deadline_ok_test(config()) -> _.
 authorization_far_future_deadline_ok_test(_Config) ->
     % 01/01/2100 @ 12:00am (UTC)
-    {ok, Token} = issue_token([], {deadline, 4102444800}),
+    {ok, Token} = issue_token(capi, ?STRING, [], {deadline, 4102444800}),
     {ok, _} = capi_client_categories:get_categories(get_context(Token)).
 
 -spec authorization_permission_ok_test(config()) -> _.
 authorization_permission_ok_test(Config) ->
     mock_services([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
-    {ok, Token} = issue_token([{[party], read}], unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, [{[party], read}], unlimited),
     {ok, _} = capi_client_parties:get_my_party(get_context(Token)).
 
 -spec authorization_negative_lifetime_error_test(config()) -> _.
@@ -521,7 +521,7 @@ authorization_error_no_header_test(_Config) ->
 
 -spec authorization_error_no_permission_test(config()) -> _.
 authorization_error_no_permission_test(_Config) ->
-    {ok, Token} = issue_token([], {lifetime, 10}),
+    {ok, Token} = issue_token(capi_wo_bouncer, ?STRING, [], {lifetime, 10}),
     ?badresp(401) = capi_client_parties:get_my_party(get_context(Token)).
 
 -spec authorization_bad_token_error_test(config()) -> _.
@@ -1492,12 +1492,19 @@ check_support_decrypt_v2_test(_Config) ->
 
 %%
 
-issue_token(PartyID, ACL, LifeTime) ->
-    Claims = #{?STRING => ?STRING},
-    capi_authorizer_jwt:issue({{PartyID, capi_acl:from_list(ACL)}, Claims}, LifeTime).
+issue_token(KeyName, UserID, ACL, LifeTime) ->
+    Claims1 = #{?STRING => ?STRING},
+    Claims2 = capi_authorizer_jwt:set_subject_id(UserID, Claims1),
+    Claims3 = capi_authorizer_jwt:set_expires_at(get_expires_at(LifeTime), Claims2),
+    Claims4 = capi_authorizer_jwt:set_acl(capi_acl:from_list(ACL), Claims3),
+    capi_authorizer_jwt:issue(KeyName, Claims4).
 
-issue_token(ACL, LifeTime) ->
-    issue_token(?STRING, ACL, LifeTime).
+get_expires_at({lifetime, Lt}) ->
+    genlib_time:unow() + Lt;
+get_expires_at({deadline, Dl}) ->
+    Dl;
+get_expires_at(unlimited) ->
+    0.
 
 issue_dummy_token(ACL, Config) ->
     Claims = #{
@@ -1512,7 +1519,7 @@ issue_dummy_token(ACL, Config) ->
     },
     BadPemFile = get_keysource("keys/local/dummy.pem", Config),
     BadJWK = jose_jwk:from_pem_file(BadPemFile),
-    GoodPemFile = get_keysource("keys/local/private.pem", Config),
+    GoodPemFile = get_keysource("keys/local/capi.pem", Config),
     GoodJWK = jose_jwk:from_pem_file(GoodPemFile),
     JWKPublic = jose_jwk:to_public(GoodJWK),
     {_Module, PublicKey} = JWKPublic#jose_jwk.kty,
@@ -1532,7 +1539,17 @@ start_capi(Config) ->
             jwt => #{
                 signee => capi,
                 keyset => #{
-                    capi => {pem_file, get_keysource("keys/local/private.pem", Config)}
+                    capi => #{
+                        source => {pem_file, get_keysource("keys/local/capi.pem", Config)},
+                        metadata => #{
+                            auth_method => user_session_token,
+                            user_realm => ?TEST_USER_REALM
+                        }
+                    },
+                    capi_wo_bouncer => #{
+                        source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+                        metadata => #{}
+                    }
                 }
             }
         }},

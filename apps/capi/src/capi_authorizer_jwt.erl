@@ -8,6 +8,7 @@
 -export([store_key/3]).
 
 -export([issue/1]).
+-export([issue/2]).
 -export([verify/1]).
 
 %% Claims
@@ -226,6 +227,20 @@ issue(Claims) ->
             sign(Key, construct_final_claims(Claims));
         undefined ->
             {error, nonexistent_signee}
+    end.
+
+-spec issue(key_name(), claims()) ->
+    {ok, token()}
+    | {error, {nonexistent_key, key_name()}}
+    | {error, {invalid_signee, key_info()}}.
+issue(KeyName, Claims) ->
+    case get_key_by_name(KeyName) of
+        Key = #{signer := #{}} ->
+            sign(Key, construct_final_claims(Claims));
+        Key = #{signer := undefined} ->
+            {error, {invalid_signee, get_key_info(Key)}};
+        undefined ->
+            {error, {nonexistent_key, KeyName}}
     end.
 
 construct_final_claims(Claims) ->
