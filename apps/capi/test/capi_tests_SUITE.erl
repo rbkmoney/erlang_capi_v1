@@ -136,7 +136,6 @@
     get_binding_ok_test/1,
     get_customer_events_ok_test/1,
     delete_customer_ok_test/1,
-    authorization_blacklisted_token_error_test/1,
 
     check_support_decrypt_v1_test/1,
     check_support_decrypt_v2_test/1
@@ -288,8 +287,7 @@ groups() ->
             authorization_bad_deadline_error_test,
             authorization_error_no_header_test,
             authorization_error_no_permission_test,
-            authorization_bad_token_error_test,
-            authorization_blacklisted_token_error_test
+            authorization_bad_token_error_test
         ]},
         {payment_tool_token_support, [], [
             check_support_decrypt_v1_test,
@@ -529,16 +527,6 @@ authorization_error_no_permission_test(_Config) ->
 -spec authorization_bad_token_error_test(config()) -> _.
 authorization_bad_token_error_test(Config) ->
     {ok, Token} = issue_dummy_token([{[party], read}], Config),
-    ?badresp(401) = capi_client_parties:get_my_party(get_context(Token)).
-
--spec authorization_blacklisted_token_error_test(config()) -> _.
-authorization_blacklisted_token_error_test(Config) ->
-    {ok, Token} = issue_token(<<"BlackListedToken">>, [{[party], read}], unlimited),
-    DataDir = get_blacklisted_keys_dir(Config),
-    ok = file:write_file(filename:join(DataDir, "1.key"), Token),
-    ok = file:write_file(filename:join(DataDir, "2.key"), Token),
-    ok = file:write_file(filename:join(DataDir, "3.key"), Token),
-    ok = capi_api_key_blacklist:update(),
     ?badresp(401) = capi_client_parties:get_my_party(get_context(Token)).
 
 -spec create_invoice_ok_test(config()) -> _.
@@ -1535,8 +1523,6 @@ issue_dummy_token(ACL, Config) ->
     {ok, Token}.
 
 start_capi(Config) ->
-    BlacklistedKeysDir = get_blacklisted_keys_dir(Config),
-    file:make_dir(BlacklistedKeysDir),
     JwkPublSource = {json, {file, get_keysource("keys/local/jwk.publ.json", Config)}},
     JwkPrivSource = {json, {file, get_keysource("keys/local/jwk.priv.json", Config)}},
     CapiEnv = [
@@ -1550,11 +1536,7 @@ start_capi(Config) ->
                 }
             }
         }},
-        {api_key_blacklist, #{
-            % milliseconds
-            update_interval => 50000,
-            blacklisted_keys_dir => BlacklistedKeysDir
-        }},
+        {bouncer_ruleset_id, ?TEST_RULESET_ID},
         {lechiffre_opts, #{
             encryption_source => JwkPublSource,
             decryption_sources => [JwkPrivSource]
@@ -1645,6 +1627,3 @@ get_lifetime(YY, MM, DD) ->
 unique_id() ->
     <<ID:64>> = snowflake:new(),
     genlib_format:format_int_base(ID, 62).
-
-get_blacklisted_keys_dir(Config) ->
-    filename:join(?config(data_dir, Config), "blacklisted_keys").
