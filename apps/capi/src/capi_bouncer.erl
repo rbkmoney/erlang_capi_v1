@@ -50,7 +50,7 @@ extract_context_fragments_by(metadata, AuthCtx = {_, Metadata}, WoodyCtx) ->
     case Metadata of
         #{auth_method := AuthMethod} ->
             build_auth_context_fragments(AuthMethod, AuthCtx, WoodyCtx);
-        error ->
+        #{} ->
             undefined
     end.
 
