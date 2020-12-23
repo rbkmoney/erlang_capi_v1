@@ -180,11 +180,8 @@ invoice_access_token_tests() ->
         create_payment_ok_test,
         create_payment_expired_test,
         create_payment_with_encrypt_token_ok_test,
-        get_payments_ok_test,
         get_payment_by_id_ok_test,
-        get_payment_by_id_error_test,
-        cancel_payment_ok_test,
-        capture_payment_ok_test
+        get_payment_by_id_error_test
     ].
 
 customer_access_token_tests() ->
@@ -192,7 +189,6 @@ customer_access_token_tests() ->
         get_customer_ok_test,
         create_binding_ok_test,
         create_binding_expired_test,
-        get_bindings_ok_test,
         get_binding_ok_test,
         get_customer_events_ok_test
     ].
@@ -212,9 +208,12 @@ groups() ->
         {operations_by_base_api_token, [], [
             create_invoice_ok_test,
             create_invoice_access_token_ok_test,
-            create_invoice_template_ok_test,
-            create_customer_ok_test,
-            create_customer_access_token_ok_test,
+            get_invoice_ok_test,
+            create_payment_ok_test,
+            get_payments_ok_test,
+            get_payment_by_id_ok_test,
+            capture_payment_ok_test,
+            cancel_payment_ok_test,
             rescind_invoice_ok_test,
             fulfill_invoice_ok_test,
             create_refund,
@@ -223,6 +222,12 @@ groups() ->
             create_partial_refund_without_currency,
             get_refund_by_id,
             get_refunds,
+            create_customer_ok_test,
+            create_customer_access_token_ok_test,
+            create_binding_ok_test,
+            get_binding_ok_test,
+            get_bindings_ok_test,
+            create_invoice_template_ok_test,
             update_invoice_template_ok_test,
             delete_invoice_template_ok_test,
             get_account_by_id_ok_test,
