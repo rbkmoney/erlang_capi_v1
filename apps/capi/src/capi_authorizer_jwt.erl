@@ -39,6 +39,7 @@
 -type expiration() :: non_neg_integer() | unlimited.
 -type auth_method() ::
     user_session_token.
+
 -type metadata() :: #{
     auth_method => auth_method(),
     user_realm => realm()

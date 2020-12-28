@@ -57,8 +57,8 @@ map_error(validation_error, Error) ->
 %%
 
 -type auth_state() ::
-    {initialized, capi_auth:provider()} |
-    completed.
+    {initialized, capi_auth:provider()}
+    | completed.
 
 -type reply() :: {Code :: 200..499, Headers :: #{}, Response :: jsx:json_term() | undefined}.
 
@@ -84,12 +84,13 @@ handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
     try
         AuthCtx = get_auth_context(ReqCtx),
         WoodyCtx = create_woody_context(Req, AuthCtx),
-        AuthProvider = case capi_auth:init_provider(ReqCtx, WoodyCtx) of
-            {ok, Result} ->
-                Result;
-            Error ->
-                throw({forbidden, Error})
-        end,
+        AuthProvider =
+            case capi_auth:init_provider(ReqCtx, WoodyCtx) of
+                {ok, Result} ->
+                    Result;
+                Error ->
+                    throw({forbidden, Error})
+            end,
         ReqSt1 = #reqst{
             operation_id = OperationID,
             user_id = capi_auth:get_subject_id(AuthCtx),
@@ -111,15 +112,13 @@ handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
             process_woody_error(Source, Class, Details)
     end.
 
--spec assert_auth_completed(request_state()) ->
-    ok | no_return().
+-spec assert_auth_completed(request_state()) -> ok | no_return().
 assert_auth_completed(#reqst{auth_st = completed}) ->
     ok;
 assert_auth_completed(#reqst{auth_st = AuthSt, operation_id = OperationID}) ->
     erlang:error({'Authorization was not completed', OperationID, AuthSt}).
 
--spec assert_reply(request_state()) ->
-    {ok, reply()} | no_return().
+-spec assert_reply(request_state()) -> {ok, reply()} | no_return().
 assert_reply(#reqst{reply = Reply}) when Reply /= undefined ->
     {ok, Reply};
 assert_reply(#reqst{reply = undefined, operation_id = OperationID}) ->
@@ -1842,8 +1841,7 @@ process_request('GetCustomerEvents', Req, ReqSt0) ->
 -spec authorize_operation(
     capi_bouncer_context:prototype_operation(),
     request_state()
-) ->
-    {capi_auth:resolution(), request_state()} | no_return().
+) -> {capi_auth:resolution(), request_state()} | no_return().
 authorize_operation(OpCtxPrototype, ReqSt) ->
     authorize_operation(OpCtxPrototype, [], ReqSt).
 
@@ -1851,8 +1849,7 @@ authorize_operation(OpCtxPrototype, ReqSt) ->
     capi_bouncer_context:prototype_operation(),
     capi_bouncer_context:prototypes(),
     request_state()
-) ->
-    {capi_auth:resolution(), request_state()} | no_return().
+) -> {capi_auth:resolution(), request_state()} | no_return().
 authorize_operation(
     OpCtxPrototype,
     AdditionalPrototype,
@@ -1982,7 +1979,9 @@ validate_event_filter_shop(PartyID, ShopID, ReqSt) when ShopID /= undefined ->
     ).
 
 try_encode_webhook_id(WebhookID) ->
-    try binary_to_integer(WebhookID) catch
+    try
+        binary_to_integer(WebhookID)
+    catch
         error:badarg ->
             undefined
     end.
