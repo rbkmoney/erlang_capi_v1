@@ -16,12 +16,12 @@
 -export_type([acc/0]).
 -export_type([fragments/0]).
 
--type prototype() :: [
-    {operation, prototype_operation()} |
-    {payproc, prototype_payproc()} |
-    {payouts, prototype_payouts()} |
-    {reports, prototype_reports()} |
-    {webhooks, prototype_webhooks()}
+-type prototypes() :: [
+    {operation, prototype_operation()}
+    | {payproc, prototype_payproc()}
+    | {payouts, prototype_payouts()}
+    | {reports, prototype_reports()}
+    | {webhooks, prototype_webhooks()}
 ].
 
 -type prototype_operation() :: #{
@@ -80,7 +80,7 @@
 
 -type entity_id() :: binary().
 
--export_type([prototype/0]).
+-export_type([prototypes/0]).
 -export_type([prototype_operation/0]).
 -export_type([prototype_payproc/0]).
 -export_type([prototype_payouts/0]).
@@ -102,7 +102,7 @@ mk_base_fragment() ->
         deployment => #{id => genlib_app:env(capi, deployment, undefined)}
     }).
 
--spec build(prototype(), fragments(), woody_context:ctx()) -> fragments().
+-spec build(prototypes(), fragments(), woody_context:ctx()) -> fragments().
 build(Prototype, {Acc0, External}, WoodyCtx) ->
     Acc1 = lists:foldl(fun({T, Params}, Acc) -> build(T, Params, Acc, WoodyCtx) end, Acc0, Prototype),
     {Acc1, External}.

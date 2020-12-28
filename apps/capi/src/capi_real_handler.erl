@@ -1849,7 +1849,7 @@ authorize_operation(OpCtxPrototype, ReqSt) ->
 
 -spec authorize_operation(
     capi_bouncer_context:prototype_operation(),
-    capi_bouncer_context:prototype(),
+    capi_bouncer_context:prototypes(),
     request_state()
 ) ->
     {capi_auth:resolution(), request_state()} | no_return().

@@ -105,7 +105,7 @@ init_legacy_provider(ReqCtx) ->
     end.
 
 -spec authorize_operation(
-    Prototype :: capi_bouncer_context:prototype(),
+    Prototype :: capi_bouncer_context:prototypes(),
     Provider :: provider()
 ) -> resolution().
 authorize_operation(Prototype, {bouncer, Fragments0, WoodyCtx}) ->
