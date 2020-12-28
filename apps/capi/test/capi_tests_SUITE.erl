@@ -165,11 +165,9 @@ all() ->
     [
         {group, woody_errors},
         {group, operations_by_base_api_token},
-        {group, operations_by_invoice_access_token_after_invoice_creation},
-        {group, operations_by_invoice_access_token_after_token_creation},
-        {group, operations_by_invoice_template_access_token},
-        {group, operations_by_customer_access_token_after_customer_creation},
-        {group, operations_by_customer_access_token_after_token_creation},
+        {group, operations_by_legacy_invoice_access_token},
+        {group, operations_by_legacy_invoice_template_access_token},
+        {group, operations_by_legacy_customer_access_token},
         {group, authorization},
         {group, payment_tool_token_support}
     ].
@@ -276,15 +274,13 @@ groups() ->
             get_payment_institution_payout_terms,
             delete_customer_ok_test
         ]},
-        {operations_by_invoice_access_token_after_invoice_creation, [], invoice_access_token_tests()},
-        {operations_by_invoice_access_token_after_token_creation, [], invoice_access_token_tests()},
-        {operations_by_invoice_template_access_token, [], [
+        {operations_by_legacy_invoice_access_token, [], invoice_access_token_tests()},
+        {operations_by_legacy_invoice_template_access_token, [], [
             create_invoice_with_tpl_ok_test,
             get_invoice_template_ok_test,
             get_invoice_payment_methods_by_tpl_id_ok_test
         ]},
-        {operations_by_customer_access_token_after_customer_creation, [], customer_access_token_tests()},
-        {operations_by_customer_access_token_after_token_creation, [], customer_access_token_tests()},
+        {operations_by_legacy_customer_access_token, [], customer_access_token_tests()},
         {authorization, [], [
             authorization_positive_lifetime_ok_test,
             authorization_unlimited_lifetime_ok_test,
@@ -312,9 +308,8 @@ init_per_suite(Config) ->
     Apps =
         capi_ct_helper:start_app(woody) ++
             start_dmt_client(SupPid) ++
-            start_bouncer_client(SupPid) ++
-            start_capi(Config),
-    [{apps, Apps}, {suite_test_sup, SupPid} | Config].
+            start_bouncer_client(SupPid),
+    [{suite_apps, Apps}, {suite_test_sup, SupPid} | Config].
 
 start_bouncer_client(SupPid) ->
     ServiceURLs = mock_services_(
@@ -368,95 +363,73 @@ start_dmt_client(SupPid) ->
 -spec end_per_suite(config()) -> _.
 end_per_suite(C) ->
     _ = stop_mocked_service_sup(?config(suite_test_sup, C)),
-    [application:stop(App) || App <- lists:reverse(proplists:get_value(apps, C))],
+    [application:stop(App) || App <- lists:reverse(proplists:get_value(suite_apps, C))],
     ok.
 
 -spec init_per_group(group_name(), config()) -> config().
-init_per_group(operations_by_invoice_access_token_after_invoice_creation, Config) ->
-    MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token(capi, ?STRING, [{[invoices], write}], unlimited),
-    mock_services(
-        [
-            {bender, fun('GenerateID', _) ->
-                {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)}
-            end},
-            {invoicing, fun('Create', {_, #payproc_InvoiceParams{id = <<"bender_key">>}}) ->
-                {ok, ?PAYPROC_INVOICE}
-            end}
-        ],
-        MockServiceSup
-    ),
-    Req = #{
-        <<"shopID">> => ?STRING,
-        <<"amount">> => ?INTEGER,
-        <<"currency">> => ?RUB,
-        <<"metadata">> => #{<<"invoice_dummy_metadata">> => <<"test_value">>},
-        <<"dueDate">> => ?TIMESTAMP,
-        <<"product">> => <<"test_product">>,
-        <<"description">> => <<"test_invoice_description">>
-    },
-    {ok, #{
-        <<"invoiceAccessToken">> := #{<<"payload">> := InvAccToken}
-    }} = capi_client_invoices:create_invoice(get_context(Token), Req),
-    stop_mocked_service_sup(MockServiceSup),
-    [{context, get_context(InvAccToken)} | Config];
-init_per_group(operations_by_invoice_access_token_after_token_creation, Config) ->
-    MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token(capi, ?STRING, [{[invoices], write}], unlimited),
-    mock_services([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], MockServiceSup),
-    {ok, #{<<"payload">> := InvAccToken}} = capi_client_invoices:create_invoice_access_token(
-        get_context(Token),
-        ?STRING
-    ),
-    stop_mocked_service_sup(MockServiceSup),
-    [{context, get_context(InvAccToken)} | Config];
-init_per_group(operations_by_invoice_template_access_token, Config) ->
-    MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token(capi, ?STRING, [{[party], write}], unlimited),
-    mock_services([{invoice_templating, fun('Create', _) -> {ok, ?INVOICE_TPL} end}], MockServiceSup),
-    Req = #{
-        <<"shopID">> => ?STRING,
-        <<"lifetime">> => get_lifetime(),
-        <<"cost">> => #{
-            <<"invoiceTemplateCostType">> => <<"InvoiceTemplateCostFixed">>,
-            <<"currency">> => ?RUB,
-            <<"amount">> => ?INTEGER
+init_per_group(operations_by_legacy_invoice_access_token, Config) ->
+    Apps = start_capi(#{
+        capi => #{
+            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+            metadata => #{}
+        }
+    }, Config),
+    ACL = [
+        {[{invoices, ?STRING}], read},
+        {[{invoices, ?STRING}, payments], read},
+        {[{invoices, ?STRING}, payments], write},
+        {[payment_resources], write}
+    ],
+    {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
+    [{context, get_context(Token)}, {group_apps, Apps} | Config];
+init_per_group(operations_by_legacy_invoice_template_access_token, Config) ->
+    Apps = start_capi(#{
+        capi => #{
+            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+            metadata => #{}
+        }
+    }, Config),
+    ACL = [
+        {[party, {invoice_templates, ?STRING}], read},
+        {[party, {invoice_templates, ?STRING}, invoice_template_invoices], write}
+    ],
+    {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
+    [{context, get_context(Token)}, {group_apps, Apps} | Config];
+init_per_group(operations_by_legacy_customer_access_token, Config) ->
+    Apps = start_capi(#{
+        capi => #{
+            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+            metadata => #{}
+        }
+    }, Config),
+    ACL = [
+        {[{customers, ?STRING}], read},
+        {[{customers, ?STRING}, bindings], read},
+        {[{customers, ?STRING}, bindings], write},
+        {[payment_resources], write}
+    ],
+    {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
+    [{context, get_context(Token)}, {group_apps, Apps} | Config];
+init_per_group(GroupName, Config) when
+    GroupName == operations_by_base_api_token;
+    GroupName == woody_errors;
+    GroupName == authorization;
+    GroupName == payment_tool_token_support
+->
+    Apps = start_capi(#{
+        capi => #{
+            source => {pem_file, get_keysource("keys/local/capi.pem", Config)},
+            metadata => #{
+                auth_method => user_session_token,
+                user_realm => ?TEST_USER_REALM
+            }
         },
-        <<"product">> => <<"test_invoice_template_product">>,
-        <<"description">> => <<"test_invoice_template_description">>,
-        <<"metadata">> => #{<<"invoice_template_dummy_metadata">> => <<"test_value">>}
-    },
-    {ok, #{
-        <<"invoiceTemplateAccessToken">> := #{<<"payload">> := InvTemplAccToken}
-    }} = capi_client_invoice_templates:create(get_context(Token), Req),
-    stop_mocked_service_sup(MockServiceSup),
-    [{context, get_context(InvTemplAccToken)} | Config];
-init_per_group(operations_by_customer_access_token_after_customer_creation, Config) ->
-    MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token(capi, ?STRING, [{[customers], write}], unlimited),
-    mock_services([{customer_management, fun('Create', _) -> {ok, ?CUSTOMER} end}], MockServiceSup),
-    Req = #{
-        <<"shopID">> => ?STRING,
-        <<"contactInfo">> => #{<<"email">> => <<"bla@bla.ru">>},
-        <<"metadata">> => #{<<"text">> => [<<"SOMESHIT">>, 42]}
-    },
-    {ok, #{
-        <<"customerAccessToken">> := #{<<"payload">> := CustAccToken}
-    }} = capi_client_customers:create_customer(get_context(Token), Req),
-    stop_mocked_service_sup(MockServiceSup),
-    [{context, get_context(CustAccToken)} | Config];
-init_per_group(operations_by_customer_access_token_after_token_creation, Config) ->
-    MockServiceSup = start_mocked_service_sup(),
-    {ok, Token} = issue_token(capi, ?STRING, [{[customers], write}], unlimited),
-    mock_services([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], MockServiceSup),
-    {ok, #{<<"payload">> := CustAccToken}} = capi_client_customers:create_customer_access_token(
-        get_context(Token),
-        ?STRING
-    ),
-    stop_mocked_service_sup(MockServiceSup),
-    [{context, get_context(CustAccToken)} | Config];
-init_per_group(GroupName, Config) when GroupName == operations_by_base_api_token; GroupName == woody_errors ->
-    BasePermissions = [
+        capi_wo_bouncer => #{
+            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+            metadata => #{}
+        }
+    }, Config),
+    ACL = [
         {[invoices], write},
         {[invoices], read},
         {[party], write},
@@ -465,15 +438,13 @@ init_per_group(GroupName, Config) when GroupName == operations_by_base_api_token
         {[invoices, payments], read},
         {[customers], write}
     ],
-    {ok, Token} = issue_token(capi, ?STRING, BasePermissions, unlimited),
+    {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     Context = get_context(Token),
-    [{context, Context} | Config];
-init_per_group(_, Config) ->
-    Config.
+    [{context, Context}, {group_apps, Apps} | Config].
 
 -spec end_per_group(group_name(), config()) -> _.
-end_per_group(_Group, _C) ->
-    ok.
+end_per_group(_Group, C) ->
+    [application:stop(App) || App <- lists:reverse(proplists:get_value(group_apps, C))].
 
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(_Name, C) ->
@@ -1725,7 +1696,7 @@ issue_dummy_token(ACL, Config) ->
     {_Modules, Token} = jose_jws:compact(JWT),
     {ok, Token}.
 
-start_capi(Config) ->
+start_capi(Keyset, Config) ->
     JwkPublSource = {json, {file, get_keysource("keys/local/jwk.publ.json", Config)}},
     JwkPrivSource = {json, {file, get_keysource("keys/local/jwk.priv.json", Config)}},
     CapiEnv = [
@@ -1735,19 +1706,7 @@ start_capi(Config) ->
         {authorizers, #{
             jwt => #{
                 signee => capi,
-                keyset => #{
-                    capi => #{
-                        source => {pem_file, get_keysource("keys/local/capi.pem", Config)},
-                        metadata => #{
-                            auth_method => user_session_token,
-                            user_realm => ?TEST_USER_REALM
-                        }
-                    },
-                    capi_wo_bouncer => #{
-                        source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
-                        metadata => #{}
-                    }
-                }
+                keyset => Keyset
             }
         }},
         {bouncer_ruleset_id, ?TEST_RULESET_ID},
