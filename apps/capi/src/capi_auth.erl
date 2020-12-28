@@ -396,7 +396,7 @@ get_operation_access('CreateBinding', #{customer := ID}) ->
     [{[{customers, ID}, bindings], write}];
 get_operation_access('GetBindings', #{customer := ID}) ->
     [{[{customers, ID}, bindings], read}];
-get_operation_access('GetBinding', #{customer := ID1, 'customerBindingID' := ID2}) ->
+get_operation_access('GetBinding', #{customer := ID1, binding := ID2}) ->
     [{[{customers, ID1}, {bindings, ID2}], read}];
 get_operation_access('GetCustomerEvents', #{customer := ID}) ->
     [{[{customers, ID}], read}];
