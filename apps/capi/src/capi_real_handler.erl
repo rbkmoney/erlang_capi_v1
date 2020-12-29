@@ -137,7 +137,8 @@ assert_reply(#reqst{reply = undefined, operation_id = OperationID}) ->
     ReqSt :: request_state()
 ) -> request_state().
 process_request('CreateInvoice' = OperationID, Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceParams = maps:get('InvoiceParams', Req),
     ShopID = maps:get(<<"shopID">>, InvoiceParams),
     {allowed, ReqSt1} = authorize_operation(
@@ -166,9 +167,9 @@ process_request('CreateInvoice' = OperationID, Req, ReqSt0) ->
         invalid_invoice_cost ->
             reply_bad_request(invalidInvoiceCost, <<"Invalid invoice amount">>, ReqSt1)
     end;
-
 process_request('CreatePayment' = OperationID, Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get('invoiceID', Req),
     PaymentParams = maps:get('PaymentParams', Req),
     {allowed, ReqSt1} = authorize_operation(
@@ -208,9 +209,9 @@ process_request('CreatePayment' = OperationID, Req, ReqSt0) ->
         {error, invalid_payment_session} ->
             reply_bad_request(invalidPaymentSession, <<"Specified payment session is invalid">>, ReqSt1)
     end;
-
 process_request('CreateInvoiceAccessToken', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -229,9 +230,9 @@ process_request('CreateInvoiceAccessToken', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('GetInvoiceByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -250,9 +251,9 @@ process_request('GetInvoiceByID', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('FulfillInvoice', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     Params = maps:get('Reason', Req),
     Reason = maps:get(<<"reason">>, Params),
@@ -284,9 +285,9 @@ process_request('FulfillInvoice', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('RescindInvoice', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     Params = maps:get('Reason', Req),
     Reason = maps:get(<<"reason">>, Params),
@@ -320,9 +321,9 @@ process_request('RescindInvoice', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('GetInvoiceEvents', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID},
@@ -359,9 +360,9 @@ process_request('GetInvoiceEvents', Req, ReqSt0) ->
                     reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1)
             end
     end;
-
 process_request('GetInvoicePaymentMethods', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice => InvoiceID},
@@ -389,9 +390,9 @@ process_request('GetInvoicePaymentMethods', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Invoice not found">>, ReqSt1)
     end;
-
 process_request('GetPayments', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -410,9 +411,9 @@ process_request('GetPayments', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('GetPaymentByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
     InvoiceResult = get_invoice_by_id(InvoiceID, ReqSt0),
@@ -437,9 +438,9 @@ process_request('GetPaymentByID', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('CancelPayment', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
@@ -478,9 +479,9 @@ process_request('CancelPayment', Req, ReqSt0) ->
                     reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1)
             end
     end;
-
 process_request('CapturePayment', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
@@ -522,9 +523,9 @@ process_request('CapturePayment', Req, ReqSt0) ->
                     reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1)
             end
     end;
-
 process_request('SearchInvoices', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = genlib_map:get('shopID', Req),
     InvoiceID = genlib_map:get('invoiceID', Req),
     OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
@@ -562,9 +563,9 @@ process_request('SearchInvoices', Req, ReqSt0) ->
         decode_fun => fun decode_stat_invoice/1
     },
     process_search_request(invoices, Query, Req, Opts, ReqSt1);
-
 process_request('SearchPayments', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = genlib_map:get('shopID', Req),
     InvoiceID = genlib_map:get('invoiceID', Req),
     OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
@@ -600,9 +601,9 @@ process_request('SearchPayments', Req, ReqSt0) ->
         decode_fun => fun decode_stat_payment/1
     },
     process_search_request(payments, Query, Req, Opts, ReqSt1);
-
 process_request('SearchPayouts', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = maps:get('shopID', Req),
     PayoutID = maps:get('payoutID', Req, undefined),
     % TODO
@@ -626,24 +627,18 @@ process_request('SearchPayouts', Req, ReqSt0) ->
         decode_fun => fun decode_stat_payout/1
     },
     process_search_request(payouts, Query, Req, Opts, ReqSt1);
-
 process_request('GetPaymentConversionStats', Req, ReqSt0) ->
     process_merchant_stat(payments_conversion_stat, Req, ReqSt0);
-
 process_request('GetPaymentRevenueStats', Req, ReqSt0) ->
     process_merchant_stat(payments_turnover, Req, ReqSt0);
-
 process_request('GetPaymentGeoStats', Req, ReqSt0) ->
     process_merchant_stat(payments_geo_stat, Req, ReqSt0);
-
 process_request('GetPaymentRateStats', Req, ReqSt0) ->
     process_merchant_stat(customers_rate_stat, Req, ReqSt0);
-
 process_request('GetPaymentMethodStats', Req, ReqSt0) ->
     bankCard = maps:get(paymentMethod, Req),
     StatType = payments_pmt_cards_stat,
     process_merchant_stat(StatType, Req, ReqSt0);
-
 process_request('GetLocationsNames', Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
     Language = maps:get('language', Req),
@@ -665,9 +660,9 @@ process_request('GetLocationsNames', Req, ReqSt0) ->
         {exception, #'InvalidRequest'{errors = Errors}} ->
             reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1)
     end;
-
 process_request('CreateRefund' = OperationID, Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
@@ -730,9 +725,9 @@ process_request('CreateRefund' = OperationID, Req, ReqSt0) ->
                     reply_bad_request(invalidRequest, format_request_errors(Errors), ReqSt1)
             end
     end;
-
 process_request('GetRefunds', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
     {allowed, ReqSt1} = authorize_operation(
@@ -754,9 +749,9 @@ process_request('GetRefunds', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('GetRefundByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceID = maps:get(invoiceID, Req),
     PaymentID = maps:get(paymentID, Req),
     RefundID = maps:get(refundID, Req),
@@ -792,9 +787,9 @@ process_request('GetRefundByID', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice not found">>, ReqSt1)
             end
     end;
-
 process_request('CreateInvoiceTemplate', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceTemplateParams = maps:get('InvoiceTemplateCreateParams', Req),
     ShopID = maps:get(<<"shopID">>, InvoiceTemplateParams),
     {allowed, ReqSt1} = authorize_operation(
@@ -827,9 +822,9 @@ process_request('CreateInvoiceTemplate', Req, ReqSt0) ->
         throw:zero_invoice_lifetime ->
             reply_bad_request(invalidRequest, <<"Lifetime cannot be zero">>, ReqSt1)
     end;
-
 process_request('GetInvoiceTemplateByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
     InvoiceTemplateResult = get_invoice_tpl_by_id(InvoiceTemplateID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -841,15 +836,13 @@ process_request('GetInvoiceTemplateByID', Req, ReqSt0) ->
         {ok, InvoiceTemplate} ->
             reply(200, decode_invoice_tpl(InvoiceTemplate), ReqSt1);
         {exception, E} when
-            E == #payproc_InvalidUser{};
-            E == #payproc_InvoiceTemplateNotFound{};
-            E == #payproc_InvoiceTemplateRemoved{}
+            E == #payproc_InvalidUser{}; E == #payproc_InvoiceTemplateNotFound{}; E == #payproc_InvoiceTemplateRemoved{}
         ->
             reply_not_found(<<"Invoice template not found">>, ReqSt1)
     end;
-
 process_request('UpdateInvoiceTemplate', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
     InvoiceTemplateResult = get_invoice_tpl_by_id(InvoiceTemplateID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -896,9 +889,9 @@ process_request('UpdateInvoiceTemplate', Req, ReqSt0) ->
         throw:zero_invoice_lifetime ->
             {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}}
     end;
-
 process_request('DeleteInvoiceTemplate', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, invoice_template => InvoiceTemplateID},
@@ -928,9 +921,9 @@ process_request('DeleteInvoiceTemplate', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice Template not found">>, ReqSt1)
             end
     end;
-
 process_request('CreateInvoiceWithTemplate' = OperationID, Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
     InvoiceParams = maps:get('InvoiceParamsWithTemplate', Req),
     {allowed, ReqSt1} = authorize_operation(
@@ -964,9 +957,9 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, ReqSt0) ->
         throw:{bad_invoice_params, amount_no_currency} ->
             reply_bad_request(invalidRequest, <<"Currency is required for the amount">>, ReqSt1)
     end;
-
 process_request('GetInvoicePaymentMethodsByTemplateID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
     Timestamp = genlib_rfc3339:format_relaxed(erlang:system_time(millisecond), millisecond),
     {allowed, ReqSt1} = authorize_operation(
@@ -997,9 +990,9 @@ process_request('GetInvoicePaymentMethodsByTemplateID', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Invoice template not found">>, ReqSt1)
     end;
-
 process_request('ActivateShop', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = maps:get(shopID, Req),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID, shop => ShopID}, ReqSt0),
     Result = service_call(
@@ -1021,9 +1014,9 @@ process_request('ActivateShop', Req, ReqSt0) ->
                     reply(204, undefined, ReqSt1)
             end
     end;
-
 process_request('SuspendShop', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = maps:get(shopID, Req),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID, shop => ShopID}, ReqSt0),
     Result = service_call(
@@ -1045,9 +1038,9 @@ process_request('SuspendShop', Req, ReqSt0) ->
                     reply(204, undefined, ReqSt1)
             end
     end;
-
 process_request('GetShops', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
+    % TODO assuming implicit party ID here
     % TODO
     % Handle restrictions also.
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
@@ -1057,9 +1050,9 @@ process_request('GetShops', _Req, ReqSt0) ->
         {exception, _} ->
             reply(200, [], ReqSt1)
     end;
-
 process_request('GetShopByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = maps:get(shopID, Req),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID, shop => ShopID}, ReqSt0),
     Result = service_call(
@@ -1074,9 +1067,9 @@ process_request('GetShopByID', Req, ReqSt0) ->
         {exception, #payproc_ShopNotFound{}} ->
             reply_not_found(<<"Shop not found">>, ReqSt1)
     end;
-
 process_request('GetReports', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = maps:get(shopID, Req),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID, shop => ShopID}, ReqSt0),
     ReportRequest = #reports_ReportRequest{
@@ -1103,9 +1096,9 @@ process_request('GetReports', Req, ReqSt0) ->
                     reply_bad_request(limitExceeded, io_lib:format("Max limit: ~p", [Limit]), ReqSt1)
             end
     end;
-
 process_request('DownloadFile', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = maps:get(shopID, Req),
     ReportID = maps:get(reportID, Req),
     FileID = maps:get(fileID, Req),
@@ -1129,9 +1122,9 @@ process_request('DownloadFile', Req, ReqSt0) ->
         {exception, #reports_ReportNotFound{}} ->
             reply_not_found(<<"Report not found">>, ReqSt1)
     end;
-
 process_request('GetContracts', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
+    % TODO assuming implicit party ID here
     % TODO
     % Handle restrictions also.
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
@@ -1143,9 +1136,9 @@ process_request('GetContracts', _Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply(200, [], ReqSt1)
     end;
-
 process_request('GetContractByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ContractID = maps:get('contractID', Req),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID, contract => ContractID}, ReqSt0),
     case get_party(PartyID, ReqSt1) of
@@ -1161,9 +1154,9 @@ process_request('GetContractByID', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-
 process_request('GetPayoutTools', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ContractID = maps:get('contractID', Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, contract => ContractID},
@@ -1179,13 +1172,14 @@ process_request('GetPayoutTools', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-
 process_request('GetPayoutToolByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ContractID = maps:get('contractID', Req),
     PayoutToolID = maps:get('payoutToolID', Req),
     {allowed, ReqSt1} = authorize_operation(
-        #{party => PartyID, contract => ContractID}, % TODO payout tool id?
+        % TODO payout tool id?
+        #{party => PartyID, contract => ContractID},
         ReqSt0
     ),
     case get_contract_by_id(PartyID, ContractID, ReqSt1) of
@@ -1203,9 +1197,9 @@ process_request('GetPayoutToolByID', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-
 process_request('GetContractAdjustments', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ContractID = maps:get('contractID', Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, contract => ContractID},
@@ -1221,13 +1215,14 @@ process_request('GetContractAdjustments', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-
 process_request('GetContractAdjustmentByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ContractID = maps:get('contractID', Req),
     AdjustmentID = maps:get('adjustmentID', Req),
     {allowed, ReqSt1} = authorize_operation(
-        #{party => PartyID, contract => ContractID}, % TODO contract adjustment id?
+        % TODO contract adjustment id?
+        #{party => PartyID, contract => ContractID},
         ReqSt0
     ),
     case get_contract_by_id(PartyID, ContractID, ReqSt1) of
@@ -1245,17 +1240,17 @@ process_request('GetContractAdjustmentByID', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Contract not found">>, ReqSt1)
     end;
-
 process_request('GetMyParty', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     case get_my_party(PartyID, ReqSt1) of
         {ok, Party} ->
             reply(200, decode_party(Party), ReqSt1)
     end;
-
 process_request('SuspendMyParty', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     Result = service_call(
         party_management,
@@ -1275,9 +1270,9 @@ process_request('SuspendMyParty', _Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply(204, undefined, ReqSt1)
     end;
-
 process_request('ActivateMyParty', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     Result = service_call(
         party_management,
@@ -1297,12 +1292,10 @@ process_request('ActivateMyParty', _Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply(204, undefined, ReqSt1)
     end;
-
 process_request('GetCategories', _Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
     {ok, Categories} = capi_domain:get_categories(ReqSt1#reqst.woody_ctx),
     reply(200, [decode_category(C) || C <- Categories], ReqSt1);
-
 process_request('GetCategoryByRef', Req, ReqSt0) ->
     CategoryID = maps:get(categoryID, Req),
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
@@ -1313,7 +1306,6 @@ process_request('GetCategoryByRef', Req, ReqSt0) ->
         {error, not_found} ->
             reply_not_found(<<"Category not found">>, ReqSt1)
     end;
-
 process_request('GetScheduleByRef', Req, ReqSt0) ->
     ScheduleID = maps:get(scheduleID, Req),
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
@@ -1323,7 +1315,6 @@ process_request('GetScheduleByRef', Req, ReqSt0) ->
         {error, not_found} ->
             reply_not_found(<<"Schedule not found">>, ReqSt1)
     end;
-
 process_request('GetPaymentInstitutions', Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
     try
@@ -1347,7 +1338,6 @@ process_request('GetPaymentInstitutions', Req, ReqSt0) ->
         throw:{encode_residence, invalid_residence} ->
             reply_bad_request(invalidRequest, <<"Invalid residence">>, ReqSt1)
     end;
-
 process_request('GetPaymentInstitutionByRef', Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
@@ -1359,7 +1349,6 @@ process_request('GetPaymentInstitutionByRef', Req, ReqSt0) ->
         {error, not_found} ->
             reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-
 process_request('GetPaymentInstitutionPaymentTerms', Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
@@ -1370,7 +1359,6 @@ process_request('GetPaymentInstitutionPaymentTerms', Req, ReqSt0) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-
 process_request('GetPaymentInstitutionPayoutMethods', Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
@@ -1388,7 +1376,6 @@ process_request('GetPaymentInstitutionPayoutMethods', Req, ReqSt0) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-
 process_request('GetPaymentInstitutionPayoutSchedules', Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
     PaymentInstitutionID = genlib:to_int(maps:get(paymentInstitutionID, Req)),
@@ -1401,15 +1388,16 @@ process_request('GetPaymentInstitutionPayoutSchedules', Req, ReqSt0) ->
         {exception, #payproc_PaymentInstitutionNotFound{}} ->
             reply_not_found(<<"Payment institution not found">>, ReqSt1)
     end;
-
 process_request('GetAccountByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     AccountID = maps:get('accountID', Req),
     % NOTE
     % Account IDs are global and have no backrefs to party management entities whatsoever.
     % Turns out party management implementation is responsible for proper access control here.
     {allowed, ReqSt1} = authorize_operation(
-        #{party => PartyID}, % TODO account => AccountID ?
+        % TODO account => AccountID ?
+        #{party => PartyID},
         ReqSt0
     ),
     Result = service_call(
@@ -1424,17 +1412,19 @@ process_request('GetAccountByID', Req, ReqSt0) ->
         {exception, #payproc_AccountNotFound{}} ->
             reply_not_found(<<"Account not found">>, ReqSt1)
     end;
-
 process_request('GetClaims', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     ClaimStatus = maps:get('claimStatus', Req),
-    case service_call(
-        party_management,
-        'GetClaims',
-        {_UserInfo = undefined, PartyID},
-        ReqSt1
-    ) of
+    case
+        service_call(
+            party_management,
+            'GetClaims',
+            {_UserInfo = undefined, PartyID},
+            ReqSt1
+        )
+    of
         {ok, Claims} ->
             reply(200, decode_claims(filter_claims(ClaimStatus, Claims)), ReqSt1);
         % NOTE
@@ -1444,9 +1434,9 @@ process_request('GetClaims', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply(200, [], ReqSt1)
     end;
-
 process_request('GetClaimByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ClaimID = maps:get('claimID', Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, claim => ClaimID},
@@ -1474,9 +1464,9 @@ process_request('GetClaimByID', Req, ReqSt0) ->
         {exception, #payproc_PartyNotFound{}} ->
             reply_not_found(<<"Claim not found">>, ReqSt1)
     end;
-
 process_request('CreateClaim', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     try
         Changeset = encode_claim_changeset(maps:get('ClaimChangeset', Req), ReqSt1),
@@ -1514,7 +1504,6 @@ process_request('CreateClaim', Req, ReqSt0) ->
         throw:{encode_residence, invalid_residence} ->
             reply_bad_request(invalidRequest, <<"Invalid residence">>, ReqSt1)
     end;
-
 % TODO disabled temporary, exception handling must be fixed befor enabling
 % process_request('UpdateClaimByID' = OperationID, Req, ReqSt0) ->
 %     UserInfo = get_user_info(Context),
@@ -1532,7 +1521,8 @@ process_request('CreateClaim', Req, ReqSt0) ->
 %     {ok, {200, #{}, Resp}};
 
 process_request('RevokeClaimByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ClaimID = maps:get('claimID', Req),
     ClaimRevision = genlib:to_int(maps:get('claimRevision', Req)),
     Reason = encode_reason(maps:get('Reason', Req)),
@@ -1565,9 +1555,9 @@ process_request('RevokeClaimByID', Req, ReqSt0) ->
                     reply_not_found(<<"Claim not found">>, ReqSt1)
             end
     end;
-
 process_request('CreateWebhook', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     WebhookParams = encode_webhook_params(PartyID, maps:get('Webhook', Req)),
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID, webhook => WebhookParams}, ReqSt0),
     case validate_webhook_params(PartyID, WebhookParams, ReqSt1) of
@@ -1577,16 +1567,16 @@ process_request('CreateWebhook', Req, ReqSt0) ->
         {exception, #payproc_ShopNotFound{}} ->
             reply_bad_request(invalidShopID, <<"Shop not found">>, ReqSt1)
     end;
-
 process_request('GetWebhooks', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
+    % TODO assuming implicit party ID here
     % TODO handle restrictions
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     {ok, Webhooks} = service_call(webhook_manager, 'GetList', {PartyID}, ReqSt1),
     reply(200, [decode_webhook(V) || V <- Webhooks], ReqSt1);
-
 process_request('GetWebhookByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     WebhookID = try_encode_webhook_id(maps:get(webhookID, Req)),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, webhook => WebhookID},
@@ -1601,9 +1591,9 @@ process_request('GetWebhookByID', Req, ReqSt0) ->
         false ->
             reply_not_found(<<"Webhook not found">>, ReqSt1)
     end;
-
 process_request('DeleteWebhookByID', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     WebhookID = try_encode_webhook_id(maps:get(webhookID, Req)),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, webhook => WebhookID},
@@ -1618,9 +1608,9 @@ process_request('DeleteWebhookByID', Req, ReqSt0) ->
         false ->
             reply_not_found(<<"Webhook not found">>, ReqSt1)
     end;
-
 process_request('CreateCustomer', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     Params = maps:get('Customer', Req),
     ShopID = maps:get(<<"shopID">>, Params),
     {allowed, ReqSt1} = authorize_operation(
@@ -1644,9 +1634,9 @@ process_request('CreateCustomer', Req, ReqSt0) ->
                     reply_bad_request(operationNotPermitted, <<"Operation not permitted">>, ReqSt1)
             end
     end;
-
 process_request('GetCustomerById', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     CustomerID = maps:get('customerID', Req),
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -1665,9 +1655,9 @@ process_request('GetCustomerById', Req, ReqSt0) ->
                     reply_not_found(<<"Customer not found">>, ReqSt1)
             end
     end;
-
 process_request('DeleteCustomer', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     CustomerID = maps:get('customerID', Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, customer => CustomerID},
@@ -1689,9 +1679,9 @@ process_request('DeleteCustomer', Req, ReqSt0) ->
                     reply_bad_request(invalidShopStatus, <<"Invalid shop status">>, ReqSt1)
             end
     end;
-
 process_request('CreateCustomerAccessToken', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     CustomerID = maps:get('customerID', Req),
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -1710,9 +1700,9 @@ process_request('CreateCustomerAccessToken', Req, ReqSt0) ->
                     reply_not_found(<<"Customer not found">>, ReqSt1)
             end
     end;
-
 process_request('CreateBinding', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     CustomerID = maps:get('customerID', Req),
     BindingParams = maps:get('CustomerBindingParams', Req),
     {allowed, ReqSt1} = authorize_operation(
@@ -1757,9 +1747,9 @@ process_request('CreateBinding', Req, ReqSt0) ->
         {error, invalid_payment_session} ->
             reply_bad_request(invalidPaymentSession, <<"Specified payment session is invalid">>, ReqSt1)
     end;
-
 process_request('GetBindings', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     CustomerID = maps:get('customerID', Req),
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
     {allowed, ReqSt1} = authorize_operation(
@@ -1778,9 +1768,9 @@ process_request('GetBindings', Req, ReqSt0) ->
                     reply_not_found(<<"Customer not found">>, ReqSt1)
             end
     end;
-
 process_request('GetBinding', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     CustomerID = maps:get('customerID', Req),
     BindingID = maps:get(customerBindingID, Req),
     CustomerResult = get_customer_by_id(CustomerID, ReqSt0),
@@ -1805,9 +1795,9 @@ process_request('GetBinding', Req, ReqSt0) ->
                     reply_not_found(<<"Customer not found">>, ReqSt1)
             end
     end;
-
 process_request('GetCustomerEvents', Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     CustomerID = maps:get('customerID', Req),
     {allowed, ReqSt1} = authorize_operation(
         #{party => PartyID, customer => CustomerID},
@@ -4808,7 +4798,8 @@ create_stat_dsl(StatType, Req, PartyID) ->
     create_dsl(StatType, Query, #{}).
 
 process_merchant_stat(StatType, Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0), % TODO assuming implicit party ID here
+    % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     ShopID = genlib_map:get('shopID', Req),
     % TODO
     % Handle restrictions on a set of shops.
