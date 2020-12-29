@@ -112,6 +112,13 @@ handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
             process_woody_error(Source, Class, Details)
     end.
 
+% NOTE
+% These attributes prevent dialyzer from emitting warnings saying that last clause is in fact
+% unreachable in _correct_ code. It's a kind of safeguard incorrectly marked as warning by the
+% dialyzer being too smart.
+-dialyzer({nowarn_function, [assert_auth_completed/1]}).
+-dialyzer({nowarn_function, [assert_reply/1]}).
+
 -spec assert_auth_completed(request_state()) -> ok | no_return().
 assert_auth_completed(#reqst{auth_st = completed}) ->
     ok;
