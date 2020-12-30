@@ -74,9 +74,8 @@ build_auth_context_fragments(user_session_token, {Claims, Metadata}, WoodyCtx) -
     Acc2 = bouncer_context_helpers:add_auth(
         #{
             method => <<"SessionToken">>,
-            expiration => make_auth_expiration(Expiration)
-            % FIXME
-            % supply jti for blacklisting
+            expiration => make_auth_expiration(Expiration),
+            token => #{id => capi_authorizer_jwt:get_token_id(Claims)}
         },
         Acc1
     ),
