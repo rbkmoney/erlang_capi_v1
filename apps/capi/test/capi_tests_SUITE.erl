@@ -1461,14 +1461,14 @@ download_report_file_not_found_test(Config) ->
     mock_services(
         [
             {reporting, fun
-                ('GetReport', _) -> {ok, ?REPORT};
+                ('GetReport', _) -> {ok, ?REPORT#reports_Report{status = pending}};
                 ('GeneratePresignedUrl', _) -> {ok, ?STRING}
             end}
         ],
         Config
     ),
     {error, {404, #{<<"message">> := <<"Report not found">>}}} =
-        capi_client_reports:download_file(?config(context, Config), <<"WRONG_STRING">>, ?INTEGER, ?STRING).
+        capi_client_reports:download_file(?config(context, Config), ?STRING, ?INTEGER, ?STRING).
 
 -spec get_categories_ok_test(config()) -> _.
 get_categories_ok_test(Config) ->
