@@ -1540,7 +1540,7 @@ process_request('GetWebhooks', _Req, ReqSt0) ->
 process_request('GetWebhookByID', Req, ReqSt0) ->
     WebhookID = try_encode_webhook_id(maps:get(webhookID, Req)),
     {allowed, ReqSt1} = authorize_operation(
-        #{webhook => WebhookID},
+        #{webhook => maps:get(webhookID, Req)},
         [{webhooks, #{webhook => WebhookID}}],
         ReqSt0
     ),
@@ -1554,7 +1554,7 @@ process_request('GetWebhookByID', Req, ReqSt0) ->
 process_request('DeleteWebhookByID', Req, ReqSt0) ->
     WebhookID = try_encode_webhook_id(maps:get(webhookID, Req)),
     {allowed, ReqSt1} = authorize_operation(
-        #{webhook => WebhookID},
+        #{webhook => maps:get(webhookID, Req)},
         [{webhooks, #{webhook => WebhookID}}],
         ReqSt0
     ),
