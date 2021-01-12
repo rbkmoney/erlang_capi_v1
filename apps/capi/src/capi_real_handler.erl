@@ -507,9 +507,7 @@ process_request('SearchInvoices', Req, ReqSt0) ->
     ShopID = genlib_map:get('shopID', Req),
     InvoiceID = genlib_map:get('invoiceID', Req),
     OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
-    % TODO
-    % No payment ctx here, need to add or simplify proto.
-    PayprocCtx = with_maybe(invoice, InvoiceID, #{}),
+    PayprocCtx = #{invoice => InvoiceID},
     % TODO
     % Handle restrictions on a set of shops.
     {allowed, ReqSt1} = authorize_operation(OpCtx, [{payproc, PayprocCtx}], ReqSt0),
@@ -547,9 +545,7 @@ process_request('SearchPayments', Req, ReqSt0) ->
     ShopID = genlib_map:get('shopID', Req),
     InvoiceID = genlib_map:get('invoiceID', Req),
     OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
-    % TODO
-    % No payment ctx here, need to add it or simplify proto.
-    PayprocCtx = with_maybe(invoice, InvoiceID, #{}),
+    PayprocCtx = #{invoice => InvoiceID},
     % TODO
     % Handle restrictions on a set of shops.
     {allowed, ReqSt1} = authorize_operation(OpCtx, [{payproc, PayprocCtx}], ReqSt0),
@@ -588,7 +584,7 @@ process_request('SearchPayouts', Req, ReqSt0) ->
     % Handle restrictions on a set of shops.
     {allowed, ReqSt1} = authorize_operation(
         with_maybe(payout, PayoutID, #{party => PartyID, shop => ShopID}),
-        [{payouts, with_maybe(payout, PayoutID, #{})}],
+        [{payouts, #{payout => PayoutID}}],
         ReqSt0
     ),
     Query = #{
