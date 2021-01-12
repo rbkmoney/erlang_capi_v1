@@ -365,12 +365,15 @@ end_per_suite(C) ->
 
 -spec init_per_group(group_name(), config()) -> config().
 init_per_group(operations_by_legacy_invoice_access_token, Config) ->
-    Apps = start_capi(#{
-        capi => #{
-            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
-            metadata => #{}
-        }
-    }, Config),
+    Apps = start_capi(
+        #{
+            capi => #{
+                source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+                metadata => #{}
+            }
+        },
+        Config
+    ),
     ACL = [
         {[{invoices, ?STRING}], read},
         {[{invoices, ?STRING}, payments], read},
@@ -380,12 +383,15 @@ init_per_group(operations_by_legacy_invoice_access_token, Config) ->
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     [{context, get_context(Token)}, {group_apps, Apps} | Config];
 init_per_group(operations_by_legacy_invoice_template_access_token, Config) ->
-    Apps = start_capi(#{
-        capi => #{
-            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
-            metadata => #{}
-        }
-    }, Config),
+    Apps = start_capi(
+        #{
+            capi => #{
+                source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+                metadata => #{}
+            }
+        },
+        Config
+    ),
     ACL = [
         {[party, {invoice_templates, ?STRING}], read},
         {[party, {invoice_templates, ?STRING}, invoice_template_invoices], write}
@@ -393,12 +399,15 @@ init_per_group(operations_by_legacy_invoice_template_access_token, Config) ->
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     [{context, get_context(Token)}, {group_apps, Apps} | Config];
 init_per_group(operations_by_legacy_customer_access_token, Config) ->
-    Apps = start_capi(#{
-        capi => #{
-            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
-            metadata => #{}
-        }
-    }, Config),
+    Apps = start_capi(
+        #{
+            capi => #{
+                source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+                metadata => #{}
+            }
+        },
+        Config
+    ),
     ACL = [
         {[{customers, ?STRING}], read},
         {[{customers, ?STRING}, bindings], read},
@@ -413,19 +422,22 @@ init_per_group(GroupName, Config) when
     GroupName == authorization;
     GroupName == payment_tool_token_support
 ->
-    Apps = start_capi(#{
-        capi => #{
-            source => {pem_file, get_keysource("keys/local/capi.pem", Config)},
-            metadata => #{
-                auth_method => user_session_token,
-                user_realm => ?TEST_USER_REALM
+    Apps = start_capi(
+        #{
+            capi => #{
+                source => {pem_file, get_keysource("keys/local/capi.pem", Config)},
+                metadata => #{
+                    auth_method => user_session_token,
+                    user_realm => ?TEST_USER_REALM
+                }
+            },
+            capi_wo_bouncer => #{
+                source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
+                metadata => #{}
             }
         },
-        capi_wo_bouncer => #{
-            source => {pem_file, get_keysource("keys/local/capi_wo_bouncer.pem", Config)},
-            metadata => #{}
-        }
-    }, Config),
+        Config
+    ),
     ACL = [
         {[invoices], write},
         {[invoices], read},
