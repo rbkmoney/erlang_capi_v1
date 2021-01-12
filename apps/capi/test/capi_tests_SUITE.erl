@@ -318,10 +318,7 @@ start_bouncer_client(SupPid) ->
                 bouncer,
                 {bouncer_decisions_thrift, 'Arbiter'},
                 fun('Judge', {?TEST_RULESET_ID, _}) ->
-                    {ok, #bdcs_Judgement{
-                        resolution = {allowed, #bdcs_ResolutionAllowed{}},
-                        resolution_legacy = allowed
-                    }}
+                    {ok, #bdcs_Judgement{resolution = {allowed, #bdcs_ResolutionAllowed{}}}}
                 end
             },
             {
