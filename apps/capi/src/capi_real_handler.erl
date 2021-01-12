@@ -1064,20 +1064,18 @@ process_request('GetReports', Req, ReqSt0) ->
             end
     end;
 process_request('DownloadFile', Req, ReqSt0) ->
-    % TODO assuming implicit party ID here
-    PartyID = get_user_id(ReqSt0),
     ShopID = maps:get(shopID, Req),
     ReportID = maps:get(reportID, Req),
     FileID = maps:get(fileID, Req),
     {allowed, ReqSt1} = authorize_operation(
-        #{party => PartyID, shop => ShopID, report => ReportID, file => FileID},
+        #{shop => ShopID, report => ReportID, file => FileID},
         [{reports, #{report => ReportID}}],
         ReqSt0
     ),
     % FIXME
     Result = service_call(reporting, 'GetReport', {ReportID}, ReqSt1),
     case Result of
-        {ok, #reports_Report{status = created, files = Files, party_id = PartyID, shop_id = ShopID}} ->
+        {ok, #reports_Report{status = created, files = Files}} ->
             case lists:keymember(FileID, #reports_FileMeta.file_id, Files) of
                 true ->
                     generate_report_presigned_url(FileID, ReqSt1);
