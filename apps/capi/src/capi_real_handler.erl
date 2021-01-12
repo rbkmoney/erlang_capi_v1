@@ -1090,8 +1090,8 @@ process_request('DownloadFile', Req, ReqSt0) ->
             reply_not_found(<<"Report not found">>, ReqSt1)
     end;
 process_request('GetContracts', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0),
     % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     % TODO
     % Handle restrictions also.
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
@@ -1535,8 +1535,8 @@ process_request('CreateWebhook', Req, ReqSt0) ->
             reply_bad_request(invalidShopID, <<"Shop not found">>, ReqSt1)
     end;
 process_request('GetWebhooks', _Req, ReqSt0) ->
-    PartyID = get_user_id(ReqSt0),
     % TODO assuming implicit party ID here
+    PartyID = get_user_id(ReqSt0),
     % TODO handle restrictions
     {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     {ok, Webhooks} = service_call(webhook_manager, 'GetList', {PartyID}, ReqSt1),
