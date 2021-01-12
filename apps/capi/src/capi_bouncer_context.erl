@@ -37,7 +37,7 @@
     binding => entity_id(),
     report => report_id(),
     file => entity_id(),
-    webhook => webhook_id() | webhook_params(),
+    webhook => entity_id(),
     claim => entity_id()
 }.
 
@@ -70,7 +70,6 @@
 
 -type webhook_id() :: dmsl_webhooker_thrift:'WebhookID'().
 -type webhook() :: dmsl_webhooker_thrift:'Webhook'().
--type webhook_params() :: dmsl_webhooker_thrift:'WebhookParams'().
 
 -type report_id() :: reporter_reports_thrift:'ReportID'().
 -type report() :: reporter_reports_thrift:'Report'().
@@ -123,7 +122,7 @@ build(operation, Params = #{id := OperationID}, Acc, _WoodyCtx) ->
                 binding = maybe_entity(binding, Params),
                 report = maybe_entity(report, Params),
                 file = maybe_entity(file, Params),
-                webhook = maybe_with(webhook, Params, fun build_op_webhook_ctx/1),
+                webhook = maybe_entity(webhook, Params),
                 claim = maybe_entity(claim, Params)
             }
         }
@@ -177,16 +176,6 @@ build(payouts, Params = #{}, Acc, WoodyCtx) ->
                 fun(V) -> build_payout_ctx(V, WoodyCtx) end
             )
         }
-    }.
-
-%%
-
-build_op_webhook_ctx(ID) when is_integer(ID) ->
-    #bctx_v1_Webhook{id = integer_to_binary(ID)};
-build_op_webhook_ctx(#webhooker_WebhookParams{party_id = PartyID, event_filter = Filter}) ->
-    #bctx_v1_Webhook{
-        party = build_entity(PartyID),
-        filter = build_webhook_filter(Filter)
     }.
 
 %%

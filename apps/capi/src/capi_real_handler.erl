@@ -1520,7 +1520,9 @@ process_request('CreateWebhook', Req, ReqSt0) ->
     % TODO assuming implicit party ID here
     PartyID = get_user_id(ReqSt0),
     WebhookParams = encode_webhook_params(PartyID, maps:get('Webhook', Req)),
-    {allowed, ReqSt1} = authorize_operation(#{party => PartyID, webhook => WebhookParams}, ReqSt0),
+    % TODO
+    % Scopes (i.e. topic / shop information) are not taken into account currently.
+    {allowed, ReqSt1} = authorize_operation(#{party => PartyID}, ReqSt0),
     case validate_webhook_params(PartyID, WebhookParams, ReqSt1) of
         {ok, _} ->
             {ok, Webhook} = service_call(webhook_manager, 'Create', {WebhookParams}, ReqSt1),
