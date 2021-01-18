@@ -506,8 +506,16 @@ process_request('SearchInvoices', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0),
     ShopID = genlib_map:get('shopID', Req),
     InvoiceID = genlib_map:get('invoiceID', Req),
-    OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
-    PayprocCtx = #{invoice => InvoiceID},
+    PaymentID = genlib_map:get('paymentID', Req),
+    OpCtx = genlib_map:compact(#{
+        party => PartyID,
+        shop => ShopID,
+        invoice => InvoiceID,
+        payment => PaymentID
+    }),
+    PayprocCtx = #{
+        invoice => InvoiceID
+    },
     % TODO
     % Handle restrictions on a set of shops.
     {allowed, ReqSt1} = authorize_operation(OpCtx, [{payproc, PayprocCtx}], ReqSt0),
@@ -523,7 +531,7 @@ process_request('SearchInvoices', Req, ReqSt0) ->
         <<"payment_method">> => encode_payment_method(genlib_map:get('paymentMethod', Req)),
         <<"payment_terminal_provider">> => genlib_map:get('paymentTerminalProvider', Req),
         <<"payment_customer_id">> => genlib_map:get('customerID', Req),
-        <<"payment_id">> => genlib_map:get('paymentID', Req),
+        <<"payment_id">> => PaymentID,
         <<"payment_email">> => genlib_map:get('payerEmail', Req),
         <<"payment_ip">> => genlib_map:get('payerIP', Req),
         <<"payment_fingerprint">> => genlib_map:get('payerFingerprint', Req),
@@ -544,8 +552,16 @@ process_request('SearchPayments', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0),
     ShopID = genlib_map:get('shopID', Req),
     InvoiceID = genlib_map:get('invoiceID', Req),
-    OpCtx = with_maybe(invoice, InvoiceID, with_maybe(shop, ShopID, #{party => PartyID})),
-    PayprocCtx = #{invoice => InvoiceID},
+    PaymentID = genlib_map:get('paymentID', Req),
+    OpCtx = genlib_map:compact(#{
+        party => PartyID,
+        shop => ShopID,
+        invoice => InvoiceID,
+        payment => PaymentID
+    }),
+    PayprocCtx = #{
+        invoice => InvoiceID
+    },
     % TODO
     % Handle restrictions on a set of shops.
     {allowed, ReqSt1} = authorize_operation(OpCtx, [{payproc, PayprocCtx}], ReqSt0),
@@ -560,7 +576,7 @@ process_request('SearchPayments', Req, ReqSt0) ->
         <<"payment_method">> => encode_payment_method(genlib_map:get('paymentMethod', Req)),
         <<"payment_terminal_provider">> => genlib_map:get('paymentTerminalProvider', Req),
         <<"payment_customer_id">> => genlib_map:get('customerID', Req),
-        <<"payment_id">> => genlib_map:get('paymentID', Req),
+        <<"payment_id">> => PaymentID,
         <<"payment_email">> => genlib_map:get('payerEmail', Req),
         <<"payment_ip">> => genlib_map:get('payerIP', Req),
         <<"payment_fingerprint">> => genlib_map:get('payerFingerprint', Req),
@@ -580,10 +596,15 @@ process_request('SearchPayouts', Req, ReqSt0) ->
     PartyID = get_user_id(ReqSt0),
     ShopID = maps:get('shopID', Req),
     PayoutID = maps:get('payoutID', Req, undefined),
+    OpCtx = genlib_map:compact(#{
+        party => PartyID,
+        shop => ShopID,
+        payout => PayoutID
+    }),
     % TODO
     % Handle restrictions on a set of shops.
     {allowed, ReqSt1} = authorize_operation(
-        with_maybe(payout, PayoutID, #{party => PartyID, shop => ShopID}),
+        OpCtx,
         [{payouts, #{payout => PayoutID}}],
         ReqSt0
     ),
