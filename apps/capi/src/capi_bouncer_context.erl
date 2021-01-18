@@ -38,7 +38,8 @@
     report => report_id(),
     file => entity_id(),
     webhook => entity_id(),
-    claim => entity_id()
+    claim => entity_id(),
+    payout => entity_id()
 }.
 
 -type prototype_payproc() :: #{
@@ -123,7 +124,8 @@ build(operation, Params = #{id := OperationID}, Acc, _WoodyCtx) ->
                 report = maybe_entity(report, Params),
                 file = maybe_entity(file, Params),
                 webhook = maybe_entity(webhook, Params),
-                claim = maybe_entity(claim, Params)
+                claim = maybe_entity(claim, Params),
+                payout = maybe_entity(payout, Params)
             }
         }
     };
