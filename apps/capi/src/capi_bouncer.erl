@@ -126,16 +126,24 @@ get_claim(Claims) ->
             undefined
     end.
 
--spec decode_claim(claim()) -> {ok, capi_bouncer_context:fragment()} | {error, {unsupported, claim()}}.
+-spec decode_claim(claim()) ->
+    {ok, capi_bouncer_context:fragment()} | {error, {unsupported, claim()} | {malformed, binary()}}.
 decode_claim(#{
     ?CLAIM_CTX_TYPE := ?CLAIM_CTX_TYPE_V1_THRIFT_BINARY,
     ?CLAIM_CTX_CONTEXT := Content
 }) ->
-    {ok,
-        {encoded_fragment, #bctx_ContextFragment{
-            type = v1_thrift_binary,
-            content = base64:decode(Content)
-        }}};
+    try
+        {ok,
+            {encoded_fragment, #bctx_ContextFragment{
+                type = v1_thrift_binary,
+                content = base64:decode(Content)
+            }}}
+    catch
+        % NOTE
+        % The `base64:decode/1` fails in unpredictable ways.
+        error:_ ->
+            {error, {malformed, Content}}
+    end;
 decode_claim(Ctx) ->
     {error, {unsupported, Ctx}}.
 
