@@ -2440,7 +2440,7 @@ mock_bouncer_client(JudgeFun, SupOrConfig) ->
                             bouncer_context_helpers:make_user_fragment(#{
                                 id => UserID,
                                 realm => #{id => ?TEST_USER_REALM},
-                                orgs => [#{id => ?STRING, owner => #{id => UserID}}]
+                                orgs => [#{id => ?STRING, owner => #{id => UserID}, party => #{id => UserID}}]
                             })
                         ),
                         {ok, Fragment}
