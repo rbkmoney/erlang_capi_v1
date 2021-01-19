@@ -367,7 +367,6 @@ init_per_group(operations_by_legacy_customer_access_token, Config) ->
     [{context, get_context(Token)}, {group_apps, Apps} | Config];
 init_per_group(operations_by_base_api_token, Config) ->
     SupPid = start_mocked_service_sup(),
-    % Apps1 = mock_bouncer_client(judge_always_forbidden(), SupPid),
     Apps1 = start_capi(
         #{capi => make_key_opts("keys/local/capi.pem", ?SESSION_KEY_METADATA, Config)},
         Config
