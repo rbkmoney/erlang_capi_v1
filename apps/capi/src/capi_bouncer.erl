@@ -39,7 +39,9 @@ judge({Acc, External}, WoodyCtx) ->
 %%
 
 extract_context_fragments_by(claim, {Claims, _}, _) ->
-    % FIXME handle errors
+    % TODO
+    % We deliberately do not handle decoding errors here since we extract claims from verified
+    % tokens only, hence they must be well-formed here.
     case get_claim(Claims) of
         {ok, ClaimFragment} ->
             {mk_base_fragment(), #{<<"claim">> => ClaimFragment}};
