@@ -44,7 +44,8 @@ extract_context_fragments_by(claim, {Claims, _}, _) ->
     % tokens only, hence they must be well-formed here.
     case get_claim(Claims) of
         {ok, ClaimFragment} ->
-            {mk_base_fragment(), #{<<"claim">> => ClaimFragment}};
+            {Acc, External} = capi_bouncer_context:new(),
+            {Acc, External#{<<"claim">> => ClaimFragment}};
         undefined ->
             undefined
     end;
@@ -103,11 +104,6 @@ add_requester_context(ReqCtx, FragmentAcc) ->
         #{ip => maps:get(ip_address, ClientPeer, undefined)},
         FragmentAcc
     ).
-
-mk_base_fragment() ->
-    bouncer_context_helpers:make_env_fragment(#{
-        deployment => #{id => genlib_app:env(capi, deployment, undefined)}
-    }).
 
 %%
 
