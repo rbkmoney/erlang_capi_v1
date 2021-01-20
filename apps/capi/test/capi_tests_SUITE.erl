@@ -366,7 +366,6 @@ init_per_group(operations_by_legacy_customer_access_token, Config) ->
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     [{context, get_context(Token)}, {group_apps, Apps} | Config];
 init_per_group(operations_by_base_api_token, Config) ->
-    SupPid = start_mocked_service_sup(),
     Apps1 = start_capi(
         #{capi => make_key_opts("keys/local/capi.pem", ?SESSION_KEY_METADATA, Config)},
         Config
@@ -382,7 +381,7 @@ init_per_group(operations_by_base_api_token, Config) ->
     ],
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     Context = get_context(Token),
-    [{context, Context}, {group_apps, Apps1}, {group_test_sup, SupPid} | Config];
+    [{context, Context}, {group_apps, Apps1} | Config];
 init_per_group(GroupName, Config) when GroupName == woody_errors; GroupName == authorization ->
     SupPid = start_mocked_service_sup(),
     Apps1 = mock_bouncer_client(judge_always_allowed(), SupPid),
