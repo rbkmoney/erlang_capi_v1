@@ -45,7 +45,11 @@ extract_context_fragments_by(claim, {Claims, _}, _) ->
     case get_claim(Claims) of
         {ok, ClaimFragment} ->
             {Acc, External} = capi_bouncer_context:new(),
-            {Acc, External#{<<"claim">> => ClaimFragment}};
+            Acc1 = bouncer_context_helpers:add_auth(
+                #{token => #{id => capi_authorizer_jwt:get_token_id(Claims)}},
+                Acc
+            ),
+            {Acc1, External#{<<"claim">> => ClaimFragment}};
         undefined ->
             undefined
     end;
