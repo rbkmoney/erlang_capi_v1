@@ -723,7 +723,12 @@ get_invoice_payment_methods_by_tpl_id_ok_test(Config) ->
         Config
     ),
     mock_bouncer_assert_invoice_tpl_op_ctx(
-        <<"GetInvoicePaymentMethodsByTemplateID">>, ?STRING, ?STRING, ?STRING, Config),
+        <<"GetInvoicePaymentMethodsByTemplateID">>,
+        ?STRING,
+        ?STRING,
+        ?STRING,
+        Config
+    ),
     {ok, _} = capi_client_invoice_templates:get_invoice_payment_methods(?config(context, Config), ?STRING).
 
 -spec get_account_by_id_ok_test(config()) -> _.
