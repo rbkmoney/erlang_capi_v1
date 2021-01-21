@@ -163,8 +163,10 @@ issue_invoice_access_token(PartyID, InvoiceID, Claims) ->
         method => ?AUTH_METHOD_INVOICE_ACCESS_TOKEN,
         expiration => make_auth_expiration(ExpiresAt),
         scope => [
-            #{party => #{id => PartyID}},
-            #{invoice => #{id => InvoiceID}}
+            #{
+                party => #{id => PartyID},
+                invoice => #{id => InvoiceID}
+            }
         ]
     },
     issue_access_token(PartyID, Claims, ACL, AuthParams, ExpiresAt).
