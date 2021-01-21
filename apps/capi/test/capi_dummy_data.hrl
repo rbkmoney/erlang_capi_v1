@@ -949,6 +949,7 @@
     })
 ).
 
+-define(TEST_CAPI_DEPLOYMENT, <<"justkiddingaround">>).
 -define(TEST_USER_REALM, <<"external">>).
 -define(TEST_RULESET_ID, <<"test/api">>).
 

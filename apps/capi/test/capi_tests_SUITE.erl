@@ -140,6 +140,11 @@
     get_customer_events_ok_test/1,
     delete_customer_ok_test/1,
 
+    session_token_context_matches/1,
+    invoice_access_token_context_matches/1,
+    invoice_template_access_token_context_matches/1,
+    customer_access_token_context_matches/1,
+
     check_support_decrypt_v1_test/1,
     check_support_decrypt_v2_test/1
 ]).
@@ -175,6 +180,7 @@ all() ->
         {group, operations_by_legacy_invoice_template_access_token},
         {group, operations_by_legacy_customer_access_token},
         {group, authorization},
+        {group, authorization_context},
         {group, payment_tool_token_support}
     ].
 
@@ -299,6 +305,12 @@ groups() ->
             authorization_error_no_permission_test,
             authorization_bad_token_error_test
         ]},
+        {authorization_context, [], [
+            session_token_context_matches,
+            invoice_access_token_context_matches,
+            invoice_template_access_token_context_matches,
+            customer_access_token_context_matches
+        ]},
         {payment_tool_token_support, [], [
             check_support_decrypt_v1_test,
             check_support_decrypt_v2_test
@@ -395,8 +407,8 @@ init_per_group(GroupName, Config) when GroupName == woody_errors; GroupName == a
     {ok, Token} = issue_token(capi, ?STRING, [], unlimited),
     Context = get_context(Token),
     [{context, Context}, {group_apps, Apps1 ++ Apps2}, {group_test_sup, SupPid} | Config];
-init_per_group(payment_tool_token_support, Config) ->
-    Apps = start_capi(#{capi => make_key_opts("keys/local/capi.pem", #{}, Config)}, Config),
+init_per_group(GroupName, Config) when GroupName == authorization_context; GroupName == payment_tool_token_support ->
+    Apps = start_capi(#{capi => make_key_opts("keys/local/capi.pem", ?SESSION_KEY_METADATA, Config)}, Config),
     [{group_apps, Apps} | Config].
 
 make_key_opts(Source, Metadata, Config) ->
@@ -510,6 +522,108 @@ authorization_error_no_permission_test(_Config) ->
 authorization_bad_token_error_test(Config) ->
     {ok, Token} = issue_dummy_token([{[party], read}], Config),
     ?badresp(401) = capi_client_parties:get_my_party(get_context(Token)).
+
+-spec session_token_context_matches(config()) -> _.
+session_token_context_matches(Config) ->
+    UserID = <<"session_token_context_matches">>,
+    Timestamp = <<"2100-01-01T12:00:00Z">>,
+    Deadline = {deadline, genlib_rfc3339:parse(Timestamp, second)},
+    {ok, SessionToken} = issue_token(capi, UserID, [], Deadline),
+    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_bouncer_arbiter(
+        ?assertContextMatches(
+            #bctx_v1_ContextFragment{
+                env = #bctx_v1_Environment{
+                    now = <<_/binary>>,
+                    deployment = #bctx_v1_Deployment{id = ?TEST_CAPI_DEPLOYMENT}
+                },
+                auth = #bctx_v1_Auth{
+                    method = <<"SessionToken">>,
+                    expiration = Timestamp,
+                    token = #bctx_v1_Token{id = <<_/binary>>}
+                },
+                user = #bctx_v1_User{
+                    id = UserID,
+                    realm = ?CTX_ENTITY(?TEST_USER_REALM),
+                    orgs = [#bctx_v1_Organization{id = ?STRING, owner = ?CTX_ENTITY(UserID)}]
+                }
+            }
+        ),
+        Config
+    ),
+    {ok, _} = capi_client_parties:get_my_party(get_context(SessionToken)).
+
+-spec invoice_access_token_context_matches(config()) -> _.
+invoice_access_token_context_matches(Config) ->
+    {ok, AccessToken} = capi_auth:issue_invoice_access_token(?STRING, ?STRING, #{}),
+    _ = mock_woody_client([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], Config),
+    _ = mock_bouncer_arbiter(
+        ?assertContextMatches(
+            #bctx_v1_ContextFragment{
+                env = #bctx_v1_Environment{},
+                auth = #bctx_v1_Auth{
+                    method = <<"InvoiceAccessToken">>,
+                    expiration = <<_/binary>>,
+                    token = #bctx_v1_Token{id = <<_/binary>>},
+                    scope = [#bctx_v1_AuthScope{
+                        party = ?CTX_ENTITY(?STRING),
+                        invoice = ?CTX_ENTITY(?STRING)
+                    }]
+                },
+                user = undefined
+            }
+        ),
+        Config
+    ),
+    {ok, _} = capi_client_invoices:get_invoice_by_id(get_context(AccessToken), ?STRING).
+
+-spec invoice_template_access_token_context_matches(config()) -> _.
+invoice_template_access_token_context_matches(Config) ->
+    {ok, AccessToken} = capi_auth:issue_invoice_template_access_token(?STRING, ?STRING, #{}),
+    _ = mock_woody_client([{invoice_templating, fun('Get', _) -> {ok, ?INVOICE_TPL} end}], Config),
+    _ = mock_bouncer_arbiter(
+        ?assertContextMatches(
+            #bctx_v1_ContextFragment{
+                env = #bctx_v1_Environment{},
+                auth = #bctx_v1_Auth{
+                    method = <<"InvoiceTemplateAccessToken">>,
+                    expiration = undefined,
+                    token = #bctx_v1_Token{id = <<_/binary>>},
+                    scope = [#bctx_v1_AuthScope{
+                        party = ?CTX_ENTITY(?STRING),
+                        invoice_template = ?CTX_ENTITY(?STRING)
+                    }]
+                },
+                user = undefined
+            }
+        ),
+        Config
+    ),
+    {ok, _} = capi_client_invoice_templates:get_template_by_id(get_context(AccessToken), ?STRING).
+
+-spec customer_access_token_context_matches(config()) -> _.
+customer_access_token_context_matches(Config) ->
+    {ok, AccessToken} = capi_auth:issue_customer_access_token(?STRING, ?STRING, #{}),
+    _ = mock_woody_client([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], Config),
+    _ = mock_bouncer_arbiter(
+        ?assertContextMatches(
+            #bctx_v1_ContextFragment{
+                env = #bctx_v1_Environment{},
+                auth = #bctx_v1_Auth{
+                    method = <<"CustomerAccessToken">>,
+                    expiration = <<_/binary>>,
+                    token = #bctx_v1_Token{id = <<_/binary>>},
+                    scope = [#bctx_v1_AuthScope{
+                        party = ?CTX_ENTITY(?STRING),
+                        customer = ?CTX_ENTITY(?STRING)
+                    }]
+                },
+                user = undefined
+            }
+        ),
+        Config
+    ),
+    {ok, _} = capi_client_customers:get_customer_by_id(get_context(AccessToken), ?STRING).
 
 -spec create_invoice_ok_test(config()) -> _.
 create_invoice_ok_test(Config) ->
@@ -1858,6 +1972,7 @@ start_capi(Keyset, Config) ->
     CapiEnv = [
         {ip, ?CAPI_IP},
         {port, ?CAPI_PORT},
+        {deployment, ?TEST_CAPI_DEPLOYMENT},
         {graceful_shutdown_timeout, 0},
         {authorizers, #{
             jwt => #{
