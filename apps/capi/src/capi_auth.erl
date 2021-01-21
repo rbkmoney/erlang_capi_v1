@@ -4,11 +4,8 @@
 -export([init_provider/2]).
 -export([authorize_operation/2]).
 
--export([issue_invoice_access_token/2]).
 -export([issue_invoice_access_token/3]).
--export([issue_invoice_template_access_token/2]).
 -export([issue_invoice_template_access_token/3]).
--export([issue_customer_access_token/2]).
 -export([issue_customer_access_token/3]).
 
 -export([get_subject_id/1]).
@@ -152,11 +149,6 @@ get_auth_context(#{auth_context := AuthContext}) ->
 -define(AUTH_METHOD_INVTPL_ACCESS_TOKEN, <<"InvoiceTemplateAccessToken">>).
 -define(AUTH_METHOD_CUSTOMER_ACCESS_TOKEN, <<"CustomerAccessToken">>).
 
--spec issue_invoice_access_token(PartyID :: binary(), InvoiceID :: binary()) ->
-    {ok, capi_authorizer_jwt:token()} | {error, _}.
-issue_invoice_access_token(PartyID, InvoiceID) ->
-    issue_invoice_access_token(PartyID, InvoiceID, #{}).
-
 -spec issue_invoice_access_token(PartyID :: binary(), InvoiceID :: binary(), claims()) ->
     {ok, capi_authorizer_jwt:token()} | {error, _}.
 issue_invoice_access_token(PartyID, InvoiceID, Claims) ->
@@ -167,22 +159,15 @@ issue_invoice_access_token(PartyID, InvoiceID, Claims) ->
         {[payment_resources], write}
     ],
     ExpiresAt = lifetime_to_expiration(?DEFAULT_INVOICE_ACCESS_TOKEN_LIFETIME),
-    ContextFragment = bouncer_context_helpers:make_auth_fragment(
-        #{
-            method => ?AUTH_METHOD_INVOICE_ACCESS_TOKEN,
-            expiration => make_auth_expiration(ExpiresAt),
-            scope => [
-                #{party => #{id => PartyID}},
-                #{invoice => #{id => InvoiceID}}
-            ]
-        }
-    ),
-    issue_access_token(PartyID, Claims, ACL, ContextFragment, ExpiresAt).
-
--spec issue_invoice_template_access_token(PartyID :: binary(), InvoiceTplID :: binary()) ->
-    {ok, capi_authorizer_jwt:token()} | {error, _}.
-issue_invoice_template_access_token(PartyID, InvoiceID) ->
-    issue_invoice_template_access_token(PartyID, InvoiceID, #{}).
+    AuthParams = #{
+        method => ?AUTH_METHOD_INVOICE_ACCESS_TOKEN,
+        expiration => make_auth_expiration(ExpiresAt),
+        scope => [
+            #{party => #{id => PartyID}},
+            #{invoice => #{id => InvoiceID}}
+        ]
+    },
+    issue_access_token(PartyID, Claims, ACL, AuthParams, ExpiresAt).
 
 -spec issue_invoice_template_access_token(PartyID :: binary(), InvoiceTplID :: binary(), claims()) ->
     {ok, capi_authorizer_jwt:token()} | {error, _}.
@@ -191,24 +176,17 @@ issue_invoice_template_access_token(PartyID, InvoiceTplID, Claims) ->
         {[party, {invoice_templates, InvoiceTplID}], read},
         {[party, {invoice_templates, InvoiceTplID}, invoice_template_invoices], write}
     ],
-    ContextFragment = bouncer_context_helpers:make_auth_fragment(
-        #{
-            method => ?AUTH_METHOD_INVTPL_ACCESS_TOKEN,
-            expiration => make_auth_expiration(unlimited),
-            scope => [
-                #{
-                    party => #{id => PartyID},
-                    invoice_template => #{id => InvoiceTplID}
-                }
-            ]
-        }
-    ),
-    issue_access_token(PartyID, Claims, ACL, ContextFragment, unlimited).
-
--spec issue_customer_access_token(PartyID :: binary(), CustomerID :: binary()) ->
-    {ok, capi_authorizer_jwt:token()} | {error, _}.
-issue_customer_access_token(PartyID, CustomerID) ->
-    issue_customer_access_token(PartyID, CustomerID, #{}).
+    AuthParams = #{
+        method => ?AUTH_METHOD_INVTPL_ACCESS_TOKEN,
+        expiration => make_auth_expiration(unlimited),
+        scope => [
+            #{
+                party => #{id => PartyID},
+                invoice_template => #{id => InvoiceTplID}
+            }
+        ]
+    },
+    issue_access_token(PartyID, Claims, ACL, AuthParams, unlimited).
 
 -spec issue_customer_access_token(PartyID :: binary(), CustomerID :: binary(), claims()) ->
     {ok, capi_authorizer_jwt:token()} | {error, _}.
@@ -220,19 +198,17 @@ issue_customer_access_token(PartyID, CustomerID, Claims) ->
         {[payment_resources], write}
     ],
     ExpiresAt = lifetime_to_expiration(?DEFAULT_CUSTOMER_ACCESS_TOKEN_LIFETIME),
-    ContextFragment = bouncer_context_helpers:make_auth_fragment(
-        #{
-            method => ?AUTH_METHOD_CUSTOMER_ACCESS_TOKEN,
-            expiration => make_auth_expiration(ExpiresAt),
-            scope => [
-                #{
-                    party => #{id => PartyID},
-                    customer => #{id => CustomerID}
-                }
-            ]
-        }
-    ),
-    issue_access_token(PartyID, Claims, ACL, ContextFragment, ExpiresAt).
+    AuthParams = #{
+        method => ?AUTH_METHOD_CUSTOMER_ACCESS_TOKEN,
+        expiration => make_auth_expiration(ExpiresAt),
+        scope => [
+            #{
+                party => #{id => PartyID},
+                customer => #{id => CustomerID}
+            }
+        ]
+    },
+    issue_access_token(PartyID, Claims, ACL, AuthParams, ExpiresAt).
 
 -type acl() :: [{capi_acl:scope(), capi_acl:permission()}].
 
@@ -240,15 +216,19 @@ issue_customer_access_token(PartyID, CustomerID, Claims) ->
     PartyID :: binary(),
     claims(),
     acl(),
-    bouncer_client:context_fragment(),
+    bouncer_context_helpers:auth_params(),
     capi_authorizer_jwt:expiration()
 ) -> {ok, capi_authorizer_jwt:token()} | {error, _}.
-issue_access_token(PartyID, BaseClaims, ACL, ContextFragment, ExpiresAt) ->
-    Claims1 = capi_authorizer_jwt:set_subject_id(PartyID, BaseClaims),
-    Claims2 = capi_authorizer_jwt:set_expires_at(ExpiresAt, Claims1),
-    Claims3 = capi_authorizer_jwt:set_acl(capi_acl:from_list(ACL), Claims2),
-    Claims4 = capi_bouncer:set_claim(ContextFragment, Claims3),
-    capi_authorizer_jwt:issue(Claims4).
+issue_access_token(PartyID, BaseClaims, ACL, BaseAuthParams, ExpiresAt) ->
+    TokenID = capi_authorizer_jwt:unique_id(),
+    AuthParams = BaseAuthParams#{token => #{id => TokenID}},
+    ContextFragment = bouncer_context_helpers:make_auth_fragment(AuthParams),
+    Claims1 = capi_authorizer_jwt:set_token_id(TokenID, BaseClaims),
+    Claims2 = capi_authorizer_jwt:set_subject_id(PartyID, Claims1),
+    Claims3 = capi_authorizer_jwt:set_expires_at(ExpiresAt, Claims2),
+    Claims4 = capi_authorizer_jwt:set_acl(capi_acl:from_list(ACL), Claims3),
+    Claims5 = capi_bouncer:set_claim(ContextFragment, Claims4),
+    capi_authorizer_jwt:issue(Claims5).
 
 lifetime_to_expiration(Lt) ->
     genlib_time:unow() + Lt.

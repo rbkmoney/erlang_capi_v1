@@ -13,6 +13,7 @@
 
 %% Claims
 -export([get_token_id/1]).
+-export([set_token_id/2]).
 -export([get_subject_id/1]).
 -export([set_subject_id/2]).
 -export([get_subject_email/1]).
@@ -21,6 +22,8 @@
 -export([set_expires_at/2]).
 -export([get_acl/1]).
 -export([set_acl/2]).
+
+-export([unique_id/0]).
 
 %%
 
@@ -225,7 +228,7 @@ construct_key(KID, JWK) ->
 issue(Claims) ->
     case get_signee_key() of
         Key = #{} ->
-            sign(Key, construct_final_claims(Claims));
+            sign(Key, ensure_token_id(Claims));
         undefined ->
             {error, nonexistent_signee}
     end.
@@ -237,21 +240,12 @@ issue(Claims) ->
 issue(KeyName, Claims) ->
     case get_key_by_name(KeyName) of
         Key = #{signer := #{}} ->
-            sign(Key, construct_final_claims(Claims));
+            sign(Key, ensure_token_id(Claims));
         Key = #{signer := undefined} ->
             {error, {invalid_signee, get_key_info(Key)}};
         undefined ->
             {error, {nonexistent_key, KeyName}}
     end.
-
-construct_final_claims(Claims) ->
-    Claims#{
-        <<"jti">> => unique_id()
-    }.
-
-unique_id() ->
-    <<ID:64>> = snowflake:new(),
-    genlib_format:format_int_base(ID, 62).
 
 sign(#{kid := KID, jwk := JWK, signer := #{} = JWS}, Claims) ->
     JWT = jose_jwt:sign(JWK, JWS#{<<"kid">> => KID}, Claims),
@@ -351,6 +345,17 @@ check_presence(C, undefined) ->
 get_token_id(#{?CLAIM_TOKEN_ID := Value}) ->
     Value.
 
+-spec set_token_id(token_id(), claims()) -> claims().
+set_token_id(TokenID, Claims) ->
+    false = maps:is_key(?CLAIM_TOKEN_ID, Claims),
+    Claims#{?CLAIM_TOKEN_ID => TokenID}.
+
+-spec ensure_token_id(claims()) -> claims().
+ensure_token_id(#{?CLAIM_TOKEN_ID := _} = Claims) ->
+    Claims;
+ensure_token_id(#{} = Claims) ->
+    set_token_id(unique_id(), Claims).
+
 -spec get_subject_id(claims()) -> subject_id().
 get_subject_id(#{?CLAIM_SUBJECT_ID := Value}) ->
     Value.
@@ -424,6 +429,11 @@ encode_roles(Roles, Claims) ->
             }
         }
     }.
+
+-spec unique_id() -> token_id().
+unique_id() ->
+    <<ID:64>> = snowflake:new(),
+    genlib_format:format_int_base(ID, 62).
 
 %%
 
