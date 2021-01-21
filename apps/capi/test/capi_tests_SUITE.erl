@@ -565,10 +565,12 @@ invoice_access_token_context_matches(Config) ->
                     method = <<"InvoiceAccessToken">>,
                     expiration = <<_/binary>>,
                     token = #bctx_v1_Token{id = <<_/binary>>},
-                    scope = [#bctx_v1_AuthScope{
-                        party = ?CTX_ENTITY(?STRING),
-                        invoice = ?CTX_ENTITY(?STRING)
-                    }]
+                    scope = [
+                        #bctx_v1_AuthScope{
+                            party = ?CTX_ENTITY(?STRING),
+                            invoice = ?CTX_ENTITY(?STRING)
+                        }
+                    ]
                 },
                 user = undefined
             }
@@ -589,10 +591,12 @@ invoice_template_access_token_context_matches(Config) ->
                     method = <<"InvoiceTemplateAccessToken">>,
                     expiration = undefined,
                     token = #bctx_v1_Token{id = <<_/binary>>},
-                    scope = [#bctx_v1_AuthScope{
-                        party = ?CTX_ENTITY(?STRING),
-                        invoice_template = ?CTX_ENTITY(?STRING)
-                    }]
+                    scope = [
+                        #bctx_v1_AuthScope{
+                            party = ?CTX_ENTITY(?STRING),
+                            invoice_template = ?CTX_ENTITY(?STRING)
+                        }
+                    ]
                 },
                 user = undefined
             }
@@ -613,10 +617,12 @@ customer_access_token_context_matches(Config) ->
                     method = <<"CustomerAccessToken">>,
                     expiration = <<_/binary>>,
                     token = #bctx_v1_Token{id = <<_/binary>>},
-                    scope = [#bctx_v1_AuthScope{
-                        party = ?CTX_ENTITY(?STRING),
-                        customer = ?CTX_ENTITY(?STRING)
-                    }]
+                    scope = [
+                        #bctx_v1_AuthScope{
+                            party = ?CTX_ENTITY(?STRING),
+                            customer = ?CTX_ENTITY(?STRING)
+                        }
+                    ]
                 },
                 user = undefined
             }
