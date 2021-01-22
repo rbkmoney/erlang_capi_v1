@@ -17,7 +17,7 @@ create_claim(Context, Changeset) ->
     Response = swag_client_claims_api:create_claim(Host, Port, PreparedParams),
     capi_client_lib:handle_response(Response).
 
--spec get_claim_by_id(context(), integer()) -> {ok, term()} | {error, term()}.
+-spec get_claim_by_id(context(), binary()) -> {ok, term()} | {error, term()}.
 get_claim_by_id(Context, ClaimID) ->
     Params = #{
         binding => #{
@@ -48,7 +48,7 @@ get_claims_by_status(Context, Status) ->
     Response = swag_client_claims_api:get_claims(Host, Port, PreparedParams),
     capi_client_lib:handle_response(Response).
 
--spec revoke_claim_by_id(context(), string(), integer(), integer()) -> ok | {error, term()}.
+-spec revoke_claim_by_id(context(), binary(), binary(), binary()) -> ok | {error, term()}.
 revoke_claim_by_id(Context, Reason, ClaimID, Revision) ->
     Params = #{
         binding => #{

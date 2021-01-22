@@ -1,6 +1,7 @@
 -module(capi_acl_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("capi_dummy_data.hrl").
 
 -spec test() -> _.
 
@@ -15,9 +16,9 @@
 
 illegal_input_test_() ->
     [
-        ?_assertError({badarg, {scope, _}}, from_list([{[], read}])),
-        ?_assertError({badarg, {permission, _}}, from_list([{[invoices], wread}])),
-        ?_assertError({badarg, {resource, _}}, from_list([{[payments], read}]))
+        ?_assertError({badarg, {scope, _}}, from_list([{?BADARG([]), read}])),
+        ?_assertError({badarg, {permission, _}}, from_list([{[invoices], ?BADARG(wread)}])),
+        ?_assertError({badarg, {resource, _}}, from_list([{?BADARG([payments]), read}]))
     ].
 
 empty_test_() ->
@@ -87,7 +88,7 @@ match_scope_test_() ->
         {[{invoices, <<"42">>}, payments], read}
     ]),
     [
-        ?_assertError({badarg, _}, match([], ACL)),
+        ?_assertError({badarg, _}, match(?BADARG([]), ACL)),
         ?_assertEqual([write], match([{invoices, <<"42">>}], ACL)),
         ?_assertEqual([read], match([{invoices, <<"43">>}], ACL)),
         ?_assertEqual([read], match([{invoices, <<"42">>}, {payments, <<"1">>}], ACL)),

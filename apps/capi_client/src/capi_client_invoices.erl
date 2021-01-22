@@ -56,11 +56,11 @@ get_invoice_by_id(Context, InvoiceID) ->
     Response = swag_client_invoices_api:get_invoice_by_id(Url, PreparedParams, Opts),
     capi_client_lib:handle_response(Response).
 
--spec fulfill_invoice(context(), binary(), string()) -> ok | {error, term()}.
+-spec fulfill_invoice(context(), binary(), binary()) -> ok | {error, term()}.
 fulfill_invoice(Context, InvoiceID, Reason) ->
     Params = #{
         binding => #{<<"invoiceID">> => InvoiceID},
-        body => #{<<"reason">> => genlib:to_binary(Reason)}
+        body => #{<<"reason">> => Reason}
     },
     {Url, PreparedParams, Opts} = capi_client_lib:make_request(Context, Params),
     Response = swag_client_invoices_api:fulfill_invoice(Url, PreparedParams, Opts),
@@ -69,11 +69,11 @@ fulfill_invoice(Context, InvoiceID, Reason) ->
         {error, Error} -> {error, Error}
     end.
 
--spec rescind_invoice(context(), binary(), string()) -> ok | {error, term()}.
+-spec rescind_invoice(context(), binary(), binary()) -> ok | {error, term()}.
 rescind_invoice(Context, InvoiceID, Reason) ->
     Params = #{
         binding => #{<<"invoiceID">> => InvoiceID},
-        body => #{<<"reason">> => genlib:to_binary(Reason)}
+        body => #{<<"reason">> => Reason}
     },
     {Url, PreparedParams, Opts} = capi_client_lib:make_request(Context, Params),
     Response = swag_client_invoices_api:rescind_invoice(Url, PreparedParams, Opts),

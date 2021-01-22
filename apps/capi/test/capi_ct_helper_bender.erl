@@ -12,8 +12,8 @@
 -export([del_storage/1]).
 -export([get_internal_id/3]).
 
--spec get_result(binary()) -> bender_thrift:bender_GenerationResult().
--spec get_result(binary(), msgpack_thrift:'Value'() | undefined) -> bender_thrift:bender_GenerationResult().
+-spec get_result(binary()) -> bender_thrift:'GenerationResult'().
+-spec get_result(binary(), msgpack_thrift:'Value'() | undefined) -> bender_thrift:'GenerationResult'().
 
 get_result(ID) ->
     get_result(ID, undefined).
@@ -25,8 +25,8 @@ get_result(ID, Context) ->
     }.
 
 -spec create_storage() -> tid().
--spec del_storage(tid()) -> ok.
--spec get_internal_id(tid(), internal_id(), msg_pack()) -> bender_thrift:bender_GenerationResult().
+-spec del_storage(tid()) -> true.
+-spec get_internal_id(tid(), internal_id(), msg_pack()) -> {ok, bender_thrift:'GenerationResult'()}.
 
 create_storage() ->
     ets:new(bender_storage, [set, public]).
