@@ -699,7 +699,12 @@ process_request('CreateInvoiceWithTemplate' = OperationID, Req, Context, ReqCtx)
     end;
 process_request('GetInvoicePaymentMethodsByTemplateID', Req, Context, ReqCtx) ->
     Timestamp = genlib_rfc3339:format_relaxed(erlang:system_time(millisecond), millisecond),
-    Result = construct_payment_methods(invoice_templating, {get_user_info(Context), maps:get('invoiceTemplateID', Req), Timestamp}, Context, ReqCtx),
+    Result = construct_payment_methods(
+        invoice_templating,
+        {get_user_info(Context), maps:get('invoiceTemplateID', Req), Timestamp},
+        Context,
+        ReqCtx
+    ),
     case Result of
         {ok, PaymentMethods} when is_list(PaymentMethods) ->
             {ok, {200, #{}, PaymentMethods}};
@@ -1306,7 +1311,7 @@ process_request('GetBinding', Req, _Context, ReqCtx) ->
 process_request('GetCustomerEvents', Req, _Context, ReqCtx) ->
     CustomerID = maps:get(customerID, Req),
     GetterFun = fun(Range) ->
-      service_call(customer_management, 'GetEvents', {CustomerID, Range}, ReqCtx)
+        service_call(customer_management, 'GetEvents', {CustomerID, Range}, ReqCtx)
     end,
     Result = collect_events(
         maps:get(limit, Req),
@@ -4613,7 +4618,12 @@ get_default_url_lifetime() ->
 
 compute_payment_institution_terms(PaymentInstitutionID, VS, Context, ReqCtx) ->
     UserInfo = get_user_info(Context),
-    service_call(party_management, 'ComputePaymentInstitutionTerms', {UserInfo, ?payment_institution_ref(PaymentInstitutionID), VS}, ReqCtx).
+    service_call(
+        party_management,
+        'ComputePaymentInstitutionTerms',
+        {UserInfo, ?payment_institution_ref(PaymentInstitutionID), VS},
+        ReqCtx
+    ).
 
 prepare_varset(Req, Context) ->
     Currency = encode_optional_currency(genlib_map:get(currency, Req)),

@@ -304,8 +304,13 @@ groups() ->
 init_per_suite(Config) ->
     SupPid = start_mocked_service_sup(),
     Apps1 = capi_ct_helper:start_app(woody),
-    ServiceURLs = mock_services_([{'Repository', {dmsl_domain_config_thrift, 'Repository'}, fun('Checkout', _) -> {ok, ?SNAPSHOT} end }], SupPid),
-    Apps2 = capi_ct_helper:start_app(dmt_client, [{max_cache_size, #{}}, {service_urls, ServiceURLs}]) ++ start_capi(Config),
+    ServiceURLs = mock_services_(
+        [{'Repository', {dmsl_domain_config_thrift, 'Repository'}, fun('Checkout', _) -> {ok, ?SNAPSHOT} end}],
+        SupPid
+    ),
+    Apps2 =
+        capi_ct_helper:start_app(dmt_client, [{max_cache_size, #{}}, {service_urls, ServiceURLs}]) ++
+            start_capi(Config),
     [{apps, lists:reverse(Apps2 ++ Apps1)}, {suite_test_sup, SupPid} | Config].
 
 -spec end_per_suite(config()) -> _.
@@ -694,7 +699,9 @@ get_account_by_id_ok_test(Config) ->
 create_payment_ok_test(Config) ->
     _ = mock_services(
         [
-            {invoicing, fun('StartPayment', {_, <<"TEST">>, #payproc_InvoicePaymentParams{id = <<"payment_key">>}}) -> {ok, ?PAYPROC_PAYMENT} end},
+            {invoicing, fun('StartPayment', {_, <<"TEST">>, #payproc_InvoicePaymentParams{id = <<"payment_key">>}}) ->
+                {ok, ?PAYPROC_PAYMENT}
+            end},
             {bender, fun
                 ('GenerateID', {_, {sequence, _}, _}) -> {ok, capi_ct_helper_bender:get_result(<<"payment_key">>)};
                 ('GenerateID', {_, {constant, _}, _}) -> {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
@@ -744,10 +751,14 @@ create_payment_with_encrypt_token_ok_test(Config) ->
     BenderKey = <<"payment_key">>,
     _ = mock_services(
         [
-            {invoicing, fun('StartPayment', {_, <<"TEST">>, #payproc_InvoicePaymentParams{id = <<"payment_key">>}}) -> {ok, ?PAYPROC_PAYMENT} end},
+            {invoicing, fun('StartPayment', {_, <<"TEST">>, #payproc_InvoicePaymentParams{id = <<"payment_key">>}}) ->
+                {ok, ?PAYPROC_PAYMENT}
+            end},
             {bender, fun
-                ('GenerateID', {_, {sequence, _}, CtxMsgPack}) -> capi_ct_helper_bender:get_internal_id(Tid, BenderKey, CtxMsgPack);
-                ('GenerateID', {_, {constant, _}, _}) -> {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
+                ('GenerateID', {_, {sequence, _}, CtxMsgPack}) ->
+                    capi_ct_helper_bender:get_internal_id(Tid, BenderKey, CtxMsgPack);
+                ('GenerateID', {_, {constant, _}, _}) ->
+                    {ok, capi_ct_helper_bender:get_result(<<"session_key">>)}
             end}
         ],
         Config
@@ -801,7 +812,10 @@ get_payment_by_id_error_test(Config) ->
                 {payment_tool_rejected, {bank_card_rejected, {cvv_invalid, #payprocerr_GeneralFailure{}}}}},
             <<"Reason">>
         ),
-    _ = mock_services([{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_FAILED_PAYMENT({failure, Failure})} end}], Config),
+    _ = mock_services(
+        [{invoicing, fun('GetPayment', _) -> {ok, ?PAYPROC_FAILED_PAYMENT({failure, Failure})} end}],
+        Config
+    ),
     {ok, #{
         <<"error">> := #{
             <<"message">> := <<"authorization_failed:payment_tool_rejected:bank_card_rejected:cvv_invalid">>
@@ -825,7 +839,9 @@ create_refund_idemp_ok_test(Config) ->
     BenderKey = <<"bender_key">>,
     _ = mock_services(
         [
-            {invoicing, fun('RefundPayment', {_, _, _, #payproc_InvoicePaymentRefundParams{id = ID}}) -> {ok, ?REFUND_DOMAIN(ID)} end},
+            {invoicing, fun('RefundPayment', {_, _, _, #payproc_InvoicePaymentRefundParams{id = ID}}) ->
+                {ok, ?REFUND_DOMAIN(ID)}
+            end},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(BenderKey)} end}
         ],
         Config
@@ -1219,8 +1235,8 @@ get_payment_revenue_stats_ok_test(Config) ->
     Query = [
         {limit, 2},
         {offset, 2},
-        {from_time, {{2015, 08, 11}, {19, 42, 35}}},
-        {to_time, {{2020, 08, 11}, {19, 42, 35}}},
+        {from_time, {{2015, 08, 11}, {19, 42, 36}}},
+        {to_time, {{2020, 08, 11}, {19, 42, 36}}},
         {split_unit, minute},
         {split_size, 1}
     ],
@@ -1232,8 +1248,8 @@ get_payment_geo_stats_ok_test(Config) ->
     Query = [
         {limit, 2},
         {offset, 0},
-        {from_time, {{2015, 08, 11}, {19, 42, 35}}},
-        {to_time, {{2020, 08, 11}, {19, 42, 35}}},
+        {from_time, {{2015, 08, 11}, {19, 42, 37}}},
+        {to_time, {{2020, 08, 11}, {19, 42, 37}}},
         {split_unit, minute},
         {split_size, 1}
     ],
@@ -1245,8 +1261,8 @@ get_payment_rate_stats_ok_test(Config) ->
     Query = [
         {limit, 2},
         {offset, 0},
-        {from_time, {{2015, 08, 11}, {19, 42, 35}}},
-        {to_time, {{2020, 08, 11}, {19, 42, 35}}},
+        {from_time, {{2015, 08, 11}, {19, 42, 38}}},
+        {to_time, {{2020, 08, 11}, {19, 42, 38}}},
         {split_unit, minute},
         {split_size, 1}
     ],
@@ -1258,8 +1274,8 @@ get_payment_method_stats_ok_test(Config) ->
     Query = [
         {limit, 2},
         {offset, 0},
-        {from_time, {{2015, 08, 11}, {19, 42, 35}}},
-        {to_time, {{2020, 08, 11}, {19, 42, 35}}},
+        {from_time, {{2015, 08, 11}, {19, 42, 39}}},
+        {to_time, {{2020, 08, 11}, {19, 42, 39}}},
         {split_unit, minute},
         {split_size, 1},
         {paymentMethod, <<"bankCard">>}
@@ -1324,8 +1340,11 @@ get_payment_institution_by_ref(Config) ->
 
 -spec get_payment_institution_payment_terms(config()) -> _.
 get_payment_institution_payment_terms(Config) ->
-    _ = mock_services([{party_management, fun('ComputePaymentInstitutionTerms', _) -> {ok, ?TERM_SET} end}],Config),
-    {ok, _} = capi_client_payment_institutions:get_payment_institution_payment_terms(?config(context, Config), ?INTEGER).
+    _ = mock_services([{party_management, fun('ComputePaymentInstitutionTerms', _) -> {ok, ?TERM_SET} end}], Config),
+    {ok, _} = capi_client_payment_institutions:get_payment_institution_payment_terms(
+        ?config(context, Config),
+        ?INTEGER
+    ).
 
 -spec get_payment_institution_payout_terms(config()) -> _.
 get_payment_institution_payout_terms(Config) ->

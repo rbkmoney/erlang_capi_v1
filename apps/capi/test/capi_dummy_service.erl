@@ -8,4 +8,3 @@
     {ok, woody:result()} | no_return().
 handle_function(FunName, Args, _, #{function := Fun}) ->
     Fun(FunName, Args).
-
