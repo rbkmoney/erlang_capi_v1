@@ -9,11 +9,12 @@
 
 -type service_name() :: atom().
 
--spec call_service(service_name(), woody:func(), [term()], woody_context:ctx()) -> woody:result().
+-spec call_service(service_name(), woody:func(), woody:args(), woody_context:ctx()) -> woody:result().
 call_service(ServiceName, Function, Args, Context) ->
     call_service(ServiceName, Function, Args, Context, scoper_woody_event_handler).
 
--spec call_service(service_name(), woody:func(), [term()], woody_context:ctx(), woody:ev_handler()) -> woody:result().
+-spec call_service(service_name(), woody:func(), woody:args(), woody_context:ctx(), woody:ev_handler()) ->
+    woody:result().
 call_service(ServiceName, Function, Args, Context0, EventHandler) ->
     Deadline = get_service_deadline(ServiceName),
     Context1 = set_deadline(Deadline, Context0),
@@ -84,7 +85,9 @@ get_service_modname(customer_management) ->
 get_service_modname(party_management) ->
     {dmsl_payment_processing_thrift, 'PartyManagement'};
 get_service_modname(bender) ->
-    {bender_thrift, 'Bender'}.
+    {bender_thrift, 'Bender'};
+get_service_modname(payout_management) ->
+    {dmsl_payout_processing_thrift, 'PayoutManagement'}.
 
 get_service_deadline(ServiceName) ->
     ServiceDeadlines = genlib_app:env(?MODULE, service_deadlines, #{}),
