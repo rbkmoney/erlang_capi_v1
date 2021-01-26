@@ -20,7 +20,7 @@ extract_context_fragments(ReqCtx, WoodyCtx) ->
     extract_context_fragments([claim, metadata], ReqCtx, WoodyCtx).
 
 extract_context_fragments([Method | Rest], ReqCtx, WoodyCtx) ->
-    case extract_context_fragments_by(Method, get_auth_context(ReqCtx), WoodyCtx) of
+    case extract_context_fragments_by(Method, ReqCtx, WoodyCtx) of
         {FragmentAcc, ExternalFragments} ->
             {add_requester_context(ReqCtx, FragmentAcc), ExternalFragments};
         undefined ->
@@ -38,10 +38,11 @@ judge({Acc, External}, WoodyCtx) ->
 
 %%
 
-extract_context_fragments_by(claim, {Claims, _}, _) ->
+extract_context_fragments_by(claim, ReqCtx, _) ->
     % TODO
     % We deliberately do not handle decoding errors here since we extract claims from verified
     % tokens only, hence they must be well-formed here.
+    {Claims, _} = get_auth_context(ReqCtx),
     case get_claim(Claims) of
         {ok, ClaimFragment} ->
             {Acc, External} = capi_bouncer_context:new(),
@@ -49,12 +50,31 @@ extract_context_fragments_by(claim, {Claims, _}, _) ->
         undefined ->
             undefined
     end;
-extract_context_fragments_by(metadata, AuthCtx = {_, Metadata}, WoodyCtx) ->
+extract_context_fragments_by(metadata, ReqCtx, WoodyCtx) ->
+    AuthCtx = {_, Metadata} = get_auth_context(ReqCtx),
     case Metadata of
+        #{auth_method := detect} ->
+            AuthMethod = detect_auth_method(ReqCtx),
+            build_auth_context_fragments(AuthMethod, AuthCtx, WoodyCtx);
         #{auth_method := AuthMethod} ->
             build_auth_context_fragments(AuthMethod, AuthCtx, WoodyCtx);
         #{} ->
             undefined
+    end.
+
+-spec detect_auth_method(swag_server:request_context()) -> capi_authorizer_jwt:auth_method().
+detect_auth_method(#{cowboy_req := CowboyReq}) ->
+    UserTokenOrigins = application:get_env(capi, user_session_token_origins, []),
+    case cowboy_req:header(<<"origin">>, CowboyReq) of
+        undefined ->
+            api_key_token;
+        Origin ->
+            case lists:member(Origin, UserTokenOrigins) of
+                true ->
+                    user_session_token;
+                false ->
+                    api_key_token
+            end
     end.
 
 -spec build_auth_context_fragments(
@@ -62,6 +82,25 @@ extract_context_fragments_by(metadata, AuthCtx = {_, Metadata}, WoodyCtx) ->
     capi_auth:context(),
     woody_context:ctx()
 ) -> capi_bouncer_context:fragments().
+build_auth_context_fragments(api_key_token, {Claims, Metadata}, _WoodyCtx) ->
+    UserID = capi_authorizer_jwt:get_subject_id(Claims),
+    {Acc0, External} = capi_bouncer_context:new(),
+    Acc1 = bouncer_context_helpers:add_user(
+        #{
+            id => UserID,
+            email => capi_authorizer_jwt:get_subject_email(Claims),
+            realm => #{id => maps:get(user_realm, Metadata, undefined)}
+        },
+        Acc0
+    ),
+    Acc2 = bouncer_context_helpers:add_auth(
+        #{
+            method => <<"ApiKeyToken">>,
+            token => #{id => capi_authorizer_jwt:get_token_id(Claims)}
+        },
+        Acc1
+    ),
+    {Acc2, External};
 build_auth_context_fragments(user_session_token, {Claims, Metadata}, WoodyCtx) ->
     UserID = capi_authorizer_jwt:get_subject_id(Claims),
     Expiration = capi_authorizer_jwt:get_expires_at(Claims),

@@ -41,7 +41,7 @@
 -type realm() :: binary().
 -type expiration() :: non_neg_integer() | unlimited.
 -type auth_method() ::
-    user_session_token.
+    user_session_token | api_key_token | detect.
 
 -type metadata() :: #{
     auth_method => auth_method(),
@@ -115,6 +115,10 @@ is_keysource(_) ->
     false.
 
 is_auth_method(user_session_token) ->
+    true;
+is_auth_method(api_key_token) ->
+    true;
+is_auth_method(detect) ->
     true;
 is_auth_method(undefined) ->
     true;

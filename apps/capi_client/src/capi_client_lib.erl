@@ -2,6 +2,7 @@
 
 -export([get_context/4]).
 -export([get_context/5]).
+-export([get_context/6]).
 
 -export([handle_response/1]).
 -export([make_request/2]).
@@ -14,7 +15,8 @@
     token := term(),
     timeout := integer(),
     event_handler := event_handler(),
-    protocol := protocol()
+    protocol := protocol(),
+    additional_headers := [header()]
 }.
 
 -export_type([context/0]).
@@ -114,12 +116,17 @@ get_context(Url, Token, Timeout, Protocol) ->
 
 -spec get_context(string(), term(), integer(), protocol(), event_handler()) -> context().
 get_context(Url, Token, Timeout, Protocol, EventHandler) ->
+    get_context(Url, Token, Timeout, Protocol, EventHandler, []).
+
+-spec get_context(string(), term(), integer(), protocol(), event_handler(), [header()]) -> context().
+get_context(Url, Token, Timeout, Protocol, EventHandler, AdditionalHeaders) ->
     #{
         url => Url,
         token => Token,
         timeout => Timeout,
         protocol => Protocol,
-        event_handler => EventHandler
+        event_handler => EventHandler,
+        additional_headers => AdditionalHeaders
     }.
 
 -spec default_event_handler() -> event_handler().
@@ -145,11 +152,21 @@ get_hackney_opts(Context) ->
 -spec headers(context()) -> list(header()).
 headers(Context) ->
     RequiredHeaders = [x_request_id_header() | json_accept_headers()],
-    case maps:get(token, Context) of
+    Headers = case maps:get(token, Context) of
         <<>> ->
             RequiredHeaders;
         Token ->
             [auth_header(Token) | RequiredHeaders]
+    end,
+    additional_headers(Headers, Context).
+
+-spec additional_headers(list(header()), context()) -> list(header()).
+additional_headers(Headers, Context) ->
+    case maps:get(additional_headers, Context) of
+        [] ->
+            Headers;
+        AdditionalHeaders ->
+            Headers ++ AdditionalHeaders
     end.
 
 -spec x_request_id_header() -> header().

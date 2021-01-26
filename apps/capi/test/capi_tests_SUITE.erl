@@ -146,7 +146,10 @@
     customer_access_token_context_matches/1,
 
     check_support_decrypt_v1_test/1,
-    check_support_decrypt_v2_test/1
+    check_support_decrypt_v2_test/1,
+
+    detect_auth_method_api_token/1,
+    detect_auth_method_session_token/1
 ]).
 
 -define(CAPI_IP, "::").
@@ -158,6 +161,8 @@
     auth_method => user_session_token,
     user_realm => ?TEST_USER_REALM
 }).
+
+-define(TEST_SESSION_TOKEN_ORIGIN, <<"https://capi-v1.local">>).
 
 -define(badresp(Code), {error, {invalid_response_code, Code}}).
 
@@ -181,7 +186,8 @@ all() ->
         {group, operations_by_legacy_customer_access_token},
         {group, authorization},
         {group, authorization_context},
-        {group, payment_tool_token_support}
+        {group, payment_tool_token_support},
+        {group, authorization_context_detect_auth_method}
     ].
 
 invoice_access_token_tests() ->
@@ -314,6 +320,10 @@ groups() ->
         {payment_tool_token_support, [], [
             check_support_decrypt_v1_test,
             check_support_decrypt_v2_test
+        ]},
+        {authorization_context_detect_auth_method, [], [
+            detect_auth_method_api_token,
+            detect_auth_method_session_token
         ]}
     ].
 
@@ -409,6 +419,12 @@ init_per_group(GroupName, Config) when GroupName == woody_errors; GroupName == a
     [{context, Context}, {group_apps, Apps1 ++ Apps2}, {group_test_sup, SupPid} | Config];
 init_per_group(GroupName, Config) when GroupName == authorization_context; GroupName == payment_tool_token_support ->
     Apps = start_capi(#{capi => make_key_opts("keys/local/capi.pem", ?SESSION_KEY_METADATA, Config)}, Config),
+    [{group_apps, Apps} | Config];
+init_per_group(GroupName, Config) when GroupName == authorization_context_detect_auth_method ->
+    Apps = start_capi(#{capi => make_key_opts("keys/local/capi.pem", #{
+        auth_method => detect,
+        user_realm => ?TEST_USER_REALM
+    }, Config)}, Config),
     [{group_apps, Apps} | Config].
 
 make_key_opts(Source, Metadata, Config) ->
@@ -630,6 +646,67 @@ customer_access_token_context_matches(Config) ->
         Config
     ),
     {ok, _} = capi_client_customers:get_customer_by_id(get_context(AccessToken), ?STRING).
+
+-spec detect_auth_method_api_token(config()) -> _.
+detect_auth_method_api_token(Config) ->
+    UserID = <<"token_detect_auth_method">>,
+    {ok, SessionToken} = issue_token(capi, UserID, [], unlimited),
+    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_bouncer_arbiter(
+        ?assertContextMatches(
+            #bctx_v1_ContextFragment{
+                env = #bctx_v1_Environment{
+                    now = <<_/binary>>,
+                    deployment = #bctx_v1_Deployment{id = ?TEST_CAPI_DEPLOYMENT}
+                },
+                auth = #bctx_v1_Auth{
+                    method = <<"ApiKeyToken">>,
+                    expiration = undefined,
+                    token = #bctx_v1_Token{id = <<_/binary>>}
+                },
+                user = #bctx_v1_User{
+                    id = UserID,
+                    realm = ?CTX_ENTITY(?TEST_USER_REALM),
+                    orgs = undefined
+                }
+            }
+        ),
+        Config
+    ),
+    {ok, _} = capi_client_parties:get_my_party(get_context(SessionToken)).
+
+-spec detect_auth_method_session_token(config()) -> _.
+detect_auth_method_session_token(Config) ->
+    UserID = <<"detect_auth_method_session_token">>,
+    Timestamp = <<"2100-01-01T12:00:00Z">>,
+    Deadline = {deadline, genlib_rfc3339:parse(Timestamp, second)},
+    {ok, SessionToken} = issue_token(capi, UserID, [], Deadline),
+    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_bouncer_arbiter(
+        ?assertContextMatches(
+            #bctx_v1_ContextFragment{
+                env = #bctx_v1_Environment{
+                    now = <<_/binary>>,
+                    deployment = #bctx_v1_Deployment{id = ?TEST_CAPI_DEPLOYMENT}
+                },
+                auth = #bctx_v1_Auth{
+                    method = <<"SessionToken">>,
+                    expiration = Timestamp,
+                    token = #bctx_v1_Token{id = <<_/binary>>}
+                },
+                user = #bctx_v1_User{
+                    id = UserID,
+                    realm = ?CTX_ENTITY(?TEST_USER_REALM),
+                    orgs = [#bctx_v1_Organization{id = ?STRING, owner = ?CTX_ENTITY(UserID)}]
+                }
+            }
+        ),
+        Config
+    ),
+    {ok, _} = capi_client_parties:get_my_party(get_context(SessionToken, [origin_header(?TEST_SESSION_TOKEN_ORIGIN)])).
+
+origin_header(Url) ->
+    {<<"origin">>, Url}.
 
 -spec create_invoice_ok_test(config()) -> _.
 create_invoice_ok_test(Config) ->
@@ -1990,7 +2067,8 @@ start_capi(Keyset, Config) ->
         {lechiffre_opts, #{
             encryption_source => JwkPublSource,
             decryption_sources => [JwkPrivSource]
-        }}
+        }},
+        {user_session_token_origins, [?TEST_SESSION_TOKEN_ORIGIN]}
     ],
     capi_ct_helper:start_app(capi, CapiEnv).
 
@@ -2250,7 +2328,17 @@ make_path(ServiceName) ->
     "/" ++ atom_to_list(ServiceName).
 
 get_context(Token) ->
-    capi_client_lib:get_context(?CAPI_URL, Token, 10000, ipv4).
+    get_context(Token, []).
+
+get_context(Token, AdditionalHeaders) ->
+    capi_client_lib:get_context(
+        ?CAPI_URL,
+        Token,
+        10000,
+        ipv4,
+        capi_client_lib:default_event_handler(),
+        AdditionalHeaders
+    ).
 
 get_keysource(Key, Config) ->
     filename:join(?config(data_dir, Config), Key).
