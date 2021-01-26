@@ -421,10 +421,19 @@ init_per_group(GroupName, Config) when GroupName == authorization_context; Group
     Apps = start_capi(#{capi => make_key_opts("keys/local/capi.pem", ?SESSION_KEY_METADATA, Config)}, Config),
     [{group_apps, Apps} | Config];
 init_per_group(GroupName, Config) when GroupName == authorization_context_detect_auth_method ->
-    Apps = start_capi(#{capi => make_key_opts("keys/local/capi.pem", #{
-        auth_method => detect,
-        user_realm => ?TEST_USER_REALM
-    }, Config)}, Config),
+    Apps = start_capi(
+        #{
+            capi => make_key_opts(
+                "keys/local/capi.pem",
+                #{
+                    auth_method => detect,
+                    user_realm => ?TEST_USER_REALM
+                },
+                Config
+            )
+        },
+        Config
+    ),
     [{group_apps, Apps} | Config].
 
 make_key_opts(Source, Metadata, Config) ->

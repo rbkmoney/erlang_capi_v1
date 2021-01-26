@@ -152,12 +152,13 @@ get_hackney_opts(Context) ->
 -spec headers(context()) -> list(header()).
 headers(Context) ->
     RequiredHeaders = [x_request_id_header() | json_accept_headers()],
-    Headers = case maps:get(token, Context) of
-        <<>> ->
-            RequiredHeaders;
-        Token ->
-            [auth_header(Token) | RequiredHeaders]
-    end,
+    Headers =
+        case maps:get(token, Context) of
+            <<>> ->
+                RequiredHeaders;
+            Token ->
+                [auth_header(Token) | RequiredHeaders]
+        end,
     additional_headers(Headers, Context).
 
 -spec additional_headers(list(header()), context()) -> list(header()).
