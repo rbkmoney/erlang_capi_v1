@@ -51,13 +51,13 @@ extract_context_fragments_by(claim, ReqCtx, _) ->
             undefined
     end;
 extract_context_fragments_by(metadata, ReqCtx, WoodyCtx) ->
-    AuthCtx = {_, Metadata} = get_auth_context(ReqCtx),
+    {Claims, Metadata} = get_auth_context(ReqCtx),
     case Metadata of
         #{auth_method := detect} ->
             AuthMethod = detect_auth_method(ReqCtx),
-            build_auth_context_fragments(AuthMethod, AuthCtx, WoodyCtx);
+            build_auth_context_fragments(AuthMethod, Claims, Metadata, WoodyCtx);
         #{auth_method := AuthMethod} ->
-            build_auth_context_fragments(AuthMethod, AuthCtx, WoodyCtx);
+            build_auth_context_fragments(AuthMethod, Claims, Metadata, WoodyCtx);
         #{} ->
             undefined
     end.
@@ -79,10 +79,11 @@ detect_auth_method(#{cowboy_req := CowboyReq}) ->
 
 -spec build_auth_context_fragments(
     capi_authorizer_jwt:auth_method(),
-    capi_auth:context(),
+    capi_authorizer_jwt:claims(),
+    capi_authorizer_jwt:metadata(),
     woody_context:ctx()
 ) -> capi_bouncer_context:fragments().
-build_auth_context_fragments(api_key_token, {Claims, Metadata}, _WoodyCtx) ->
+build_auth_context_fragments(api_key_token, Claims, Metadata, _WoodyCtx) ->
     UserID = capi_authorizer_jwt:get_subject_id(Claims),
     {Acc0, External} = capi_bouncer_context:new(),
     Acc1 = bouncer_context_helpers:add_user(
@@ -101,7 +102,7 @@ build_auth_context_fragments(api_key_token, {Claims, Metadata}, _WoodyCtx) ->
         Acc1
     ),
     {Acc2, External};
-build_auth_context_fragments(user_session_token, {Claims, Metadata}, WoodyCtx) ->
+build_auth_context_fragments(user_session_token, Claims, Metadata, WoodyCtx) ->
     UserID = capi_authorizer_jwt:get_subject_id(Claims),
     Expiration = capi_authorizer_jwt:get_expires_at(Claims),
     {Acc0, External} = capi_bouncer_context:new(),
