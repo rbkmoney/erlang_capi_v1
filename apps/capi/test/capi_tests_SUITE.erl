@@ -633,14 +633,14 @@ customer_access_token_context_matches(Config) ->
 
 -spec create_invoice_ok_test(config()) -> _.
 create_invoice_ok_test(Config) ->
-    mock_woody_client(
+    _ = mock_woody_client(
         [
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"key">>)} end},
             {invoicing, fun('Create', {_, #payproc_InvoiceParams{id = <<"key">>}}) -> {ok, ?PAYPROC_INVOICE} end}
         ],
         Config
     ),
-    mock_bouncer_assert_shop_op_ctx(<<"CreateInvoice">>, ?STRING, ?STRING, Config),
+    _ = mock_bouncer_assert_shop_op_ctx(<<"CreateInvoice">>, ?STRING, ?STRING, Config),
     Req = #{
         <<"shopID">> => ?STRING,
         <<"amount">> => ?INTEGER,
@@ -654,7 +654,7 @@ create_invoice_ok_test(Config) ->
 
 -spec create_invoice_with_tpl_ok_test(config()) -> _.
 create_invoice_with_tpl_ok_test(Config) ->
-    mock_woody_client(
+    _ = mock_woody_client(
         [
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"key">>)} end},
             {invoice_templating, fun('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL} end},
@@ -673,13 +673,13 @@ create_invoice_with_tpl_ok_test(Config) ->
 
 -spec get_invoice_ok_test(config()) -> _.
 get_invoice_ok_test(Config) ->
-    mock_woody_client(
+    _ = mock_woody_client(
         [
             {invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}
         ],
         Config
     ),
-    mock_bouncer_assert_invoice_op_ctx(<<"GetInvoiceByID">>, ?STRING, ?STRING, ?STRING, Config),
+    _ = mock_bouncer_assert_invoice_op_ctx(<<"GetInvoiceByID">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_invoices:get_invoice_by_id(?config(context, Config), ?STRING).
 
 -spec get_invoice_events_ok_test(config()) -> _.
@@ -735,8 +735,8 @@ get_invoice_payment_methods_ok_test(Config) ->
 
 -spec create_invoice_access_token_ok_test(config()) -> _.
 create_invoice_access_token_ok_test(Config) ->
-    mock_woody_client([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], Config),
-    mock_bouncer_assert_invoice_op_ctx(<<"CreateInvoiceAccessToken">>, ?STRING, ?STRING, ?STRING, Config),
+    _ = mock_woody_client([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], Config),
+    _ = mock_bouncer_assert_invoice_op_ctx(<<"CreateInvoiceAccessToken">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_invoices:create_invoice_access_token(?config(context, Config), ?STRING).
 
 -spec rescind_invoice_ok_test(config()) -> _.
@@ -1208,7 +1208,7 @@ activate_shop_ok_test(Config) ->
 get_claim_by_id_ok_test(Config) ->
     _ = mock_woody_client([{party_management, fun('GetClaim', _) -> {ok, ?CLAIM(?CLAIM_CHANGESET)} end}], Config),
     _ = mock_bouncer_assert_claim_op_ctx(<<"GetClaimByID">>, ?STRING, ?INTEGER_BINARY, Config),
-    {ok, _} = capi_client_claims:get_claim_by_id(?config(context, Config), ?INTEGER).
+    {ok, _} = capi_client_claims:get_claim_by_id(?config(context, Config), ?INTEGER_BINARY).
 
 -spec get_claims_ok_test(config()) -> _.
 get_claims_ok_test(Config) ->
@@ -1231,7 +1231,7 @@ get_claims_ok_test(Config) ->
 revoke_claim_ok_test(Config) ->
     _ = mock_woody_client([{party_management, fun('RevokeClaim', _) -> {ok, ok} end}], Config),
     _ = mock_bouncer_assert_claim_op_ctx(<<"RevokeClaimByID">>, ?STRING, ?INTEGER_BINARY, Config),
-    ok = capi_client_claims:revoke_claim_by_id(?config(context, Config), ?STRING, ?INTEGER, ?INTEGER).
+    ok = capi_client_claims:revoke_claim_by_id(?config(context, Config), ?STRING, ?INTEGER_BINARY, ?INTEGER_BINARY).
 
 -spec create_claim_ok_test(config()) -> _.
 create_claim_ok_test(Config) ->
@@ -1669,7 +1669,7 @@ download_report_file_ok_test(Config) ->
         ),
         Config
     ),
-    {ok, _} = capi_client_reports:download_file(?config(context, Config), ?STRING, ?INTEGER, ?STRING).
+    {ok, _} = capi_client_reports:download_file(?config(context, Config), ?STRING, ?INTEGER_BINARY, ?STRING).
 
 -spec download_report_file_not_found_test(_) -> _.
 download_report_file_not_found_test(Config) ->
@@ -1703,22 +1703,22 @@ download_report_file_not_found_test(Config) ->
 
 -spec get_categories_ok_test(config()) -> _.
 get_categories_ok_test(Config) ->
-    mock_bouncer_assert_op_ctx(<<"GetCategories">>, Config),
+    _ = mock_bouncer_assert_op_ctx(<<"GetCategories">>, Config),
     {ok, _} = capi_client_categories:get_categories(?config(context, Config)).
 
 -spec get_category_by_ref_ok_test(config()) -> _.
 get_category_by_ref_ok_test(Config) ->
-    mock_bouncer_assert_op_ctx(<<"GetCategoryByRef">>, Config),
+    _ = mock_bouncer_assert_op_ctx(<<"GetCategoryByRef">>, Config),
     {ok, _} = capi_client_categories:get_category_by_ref(?config(context, Config), ?INTEGER).
 
 -spec get_schedule_by_ref_ok_test(config()) -> _.
 get_schedule_by_ref_ok_test(Config) ->
-    mock_bouncer_assert_op_ctx(<<"GetScheduleByRef">>, Config),
+    _ = mock_bouncer_assert_op_ctx(<<"GetScheduleByRef">>, Config),
     {ok, _} = capi_client_payouts:get_schedule_by_ref(?config(context, Config), ?INTEGER).
 
 -spec get_payment_institutions(config()) -> _.
 get_payment_institutions(Config) ->
-    mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutions">>, Config),
+    _ = mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutions">>, Config),
     {ok, [_Something]} = capi_client_payment_institutions:get_payment_institutions(?config(context, Config)),
     {ok, []} =
         capi_client_payment_institutions:get_payment_institutions(?config(context, Config), <<"RUS">>, <<"live">>),
@@ -1727,7 +1727,7 @@ get_payment_institutions(Config) ->
 
 -spec get_payment_institution_by_ref(config()) -> _.
 get_payment_institution_by_ref(Config) ->
-    mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutionByRef">>, Config),
+    _ = mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutionByRef">>, Config),
     {ok, _} = capi_client_payment_institutions:get_payment_institution_by_ref(?config(context, Config), ?INTEGER).
 
 -spec get_payment_institution_payment_terms(config()) -> _.
@@ -1759,13 +1759,13 @@ get_payment_institution_payout_methods(Config) ->
 
 -spec get_payment_institution_payout_schedules(config()) -> _.
 get_payment_institution_payout_schedules(Config) ->
-    mock_woody_client(
+    _ = mock_woody_client(
         [
             {party_management, fun('ComputePaymentInstitutionTerms', _) -> {ok, ?TERM_SET} end}
         ],
         Config
     ),
-    mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutionPayoutSchedules">>, Config),
+    _ = mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutionPayoutSchedules">>, Config),
     {ok, _} = capi_client_payment_institutions:get_payment_institution_payout_schedules(
         ?config(context, Config),
         ?INTEGER,

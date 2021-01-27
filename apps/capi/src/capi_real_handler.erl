@@ -4914,7 +4914,9 @@ get_events(Limit, After, GetterFun) ->
 
 construct_payment_methods(#domain_TermSet{payments = undefined}) ->
     [];
-construct_payment_methods(#domain_TermSet{payments = #domain_PaymentsServiceTerms{payment_methods = PaymentMethodRefs}}) ->
+construct_payment_methods(#domain_TermSet{
+    payments = #domain_PaymentsServiceTerms{payment_methods = PaymentMethodRefs}
+}) ->
     decode_payment_methods(PaymentMethodRefs).
 
 decode_payment_methods(undefined) ->
