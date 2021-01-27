@@ -20,6 +20,8 @@
 -export([unwrap/1]).
 -export([define/2]).
 
+-export([maybe/2]).
+
 -spec deadline_to_binary(deadline()) -> binary() | undefined.
 deadline_to_binary(undefined) ->
     undefined;
@@ -99,6 +101,12 @@ define(undefined, V) ->
     V;
 define(V, _Default) ->
     V.
+
+-spec maybe(T | undefined, fun((T) -> R)) -> R | undefined.
+maybe(undefined, _Fun) ->
+    undefined;
+maybe(V, Fun) ->
+    Fun(V).
 
 %%
 

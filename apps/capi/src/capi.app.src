@@ -25,7 +25,8 @@
         how_are_you,
         erl_health,
         prometheus,
-        prometheus_cowboy
+        prometheus_cowboy,
+        bouncer_client
     ]},
     {env, []}
 ]}.

@@ -26,11 +26,27 @@
     description = ?STRING
 }).
 
+-define(CURRENCY(Code), #domain_CurrencyRef{symbolic_code = Code}).
+
 -define(CASH, #domain_Cash{
     amount = ?INTEGER,
-    currency = #domain_CurrencyRef{
-        symbolic_code = ?RUB
-    }
+    currency = ?CURRENCY(?RUB)
+}).
+
+-define(CASH_FLOW_ACCOUNT_MERCHANT, {merchant, settlement}).
+-define(CASH_FLOW_ACCOUNT_PROVIDER, {provider, settlement}).
+
+-define(FINAL_CASH_FLOW, [?FINAL_CASH_FLOW_POSTING]).
+-define(FINAL_CASH_FLOW_POSTING, #domain_FinalCashFlowPosting{
+    source = ?FINAL_CASH_FLOW_ACCOUNT(?CASH_FLOW_ACCOUNT_MERCHANT),
+    destination = ?FINAL_CASH_FLOW_ACCOUNT(?CASH_FLOW_ACCOUNT_PROVIDER),
+    volume = ?CASH,
+    details = ?STRING
+}).
+
+-define(FINAL_CASH_FLOW_ACCOUNT(Type), #domain_FinalCashFlowAccount{
+    account_type = Type,
+    account_id = ?INTEGER
 }).
 
 -define(CONTENT, #'Content'{
@@ -75,9 +91,11 @@
     template_id = ?STRING
 }).
 
--define(PAYPROC_INVOICE, #payproc_Invoice{
+-define(PAYPROC_INVOICE, ?PAYPROC_INVOICE([])).
+
+-define(PAYPROC_INVOICE(Payments), #payproc_Invoice{
     invoice = ?INVOICE,
-    payments = []
+    payments = Payments
 }).
 
 -define(INVOICE_LINE, #domain_InvoiceLine{
@@ -142,6 +160,10 @@
     context = ?CONTENT
 }).
 
+-define(PAYMENT_PARAMS(ID), #payproc_InvoicePaymentParams{
+    id = ID
+}).
+
 -define(PAYPROC_PAYMENT(Payment), #payproc_InvoicePayment{
     payment = Payment,
     refunds = [?REFUND],
@@ -184,6 +206,15 @@
     domain_revision = ?INTEGER,
     reason = ?STRING,
     cash = ?CASH
+}).
+
+-define(REFUND_PARAMS(ID), #payproc_InvoicePaymentRefundParams{
+    id = ID
+}).
+
+-define(REFUND_PARAMS(ID, Amount, Currency), #payproc_InvoicePaymentRefundParams{
+    id = ID,
+    cash = #domain_Cash{amount = Amount, currency = ?CURRENCY(Currency)}
 }).
 
 -define(CONTRACT, #domain_Contract{
@@ -265,6 +296,12 @@
     contract = ?WALLET_CONTRACT_ID
 }).
 
+-define(LEGAL_AGREEMENT, #domain_LegalAgreement{
+    signed_at = ?TIMESTAMP,
+    legal_agreement_id = ?STRING,
+    valid_until = ?TIMESTAMP
+}).
+
 -define(PARTY, #domain_Party{
     id = ?STRING,
     contact_info = #domain_PartyContactInfo{email = ?STRING},
@@ -333,11 +370,7 @@
     {contract_modification, #payproc_ContractModificationUnit{
         id = ?STRING,
         modification =
-            {legal_agreement_binding, #domain_LegalAgreement{
-                signed_at = ?TIMESTAMP,
-                legal_agreement_id = ?STRING,
-                valid_until = ?TIMESTAMP
-            }}
+            {legal_agreement_binding, ?LEGAL_AGREEMENT}
     }},
     {contract_modification, #payproc_ContractModificationUnit{
         id = ?STRING,
@@ -521,10 +554,10 @@
 -define(STAT_RESPONSE_PAYOUTS,
     ?STAT_RESPONSE(
         {payouts, [
-            ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD}}, [?PAYOUT_SUMMARY_ITEM]),
-            ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD_WITH_TP}}, [?PAYOUT_SUMMARY_ITEM]),
+            ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD}}, [?STAT_PAYOUT_SUMMARY_ITEM]),
+            ?STAT_PAYOUT({bank_card, #merchstat_PayoutCard{card = ?STAT_BANK_CARD_WITH_TP}}, [?STAT_PAYOUT_SUMMARY_ITEM]),
             ?STAT_PAYOUT({bank_account, ?STAT_PAYOUT_BANK_ACCOUNT_RUS}, undefined),
-            ?STAT_PAYOUT({bank_account, ?STAT_PAYOUT_BANK_ACCOUNT_INT}, [?PAYOUT_SUMMARY_ITEM])
+            ?STAT_PAYOUT({bank_account, ?STAT_PAYOUT_BANK_ACCOUNT_INT}, [?STAT_PAYOUT_SUMMARY_ITEM])
         ]}
     )
 ).
@@ -646,7 +679,7 @@
     token_provider = applepay
 }).
 
--define(PAYOUT_SUMMARY_ITEM, #merchstat_PayoutSummaryItem{
+-define(STAT_PAYOUT_SUMMARY_ITEM, #merchstat_PayoutSummaryItem{
     amount = ?INTEGER,
     fee = ?INTEGER,
     currency_symbolic_code = ?RUB,
@@ -655,6 +688,46 @@
     operation_type = payment,
     count = ?INTEGER
 }).
+
+-define(PAYOUT(Type, PayoutSummary), #payout_processing_Payout{
+    id = ?STRING,
+    party_id = ?STRING,
+    shop_id = ?STRING,
+    contract_id = ?STRING,
+    created_at = ?TIMESTAMP,
+    status = {paid, #payout_processing_PayoutPaid{}},
+    amount = ?INTEGER,
+    fee = ?INTEGER,
+    currency = ?CURRENCY(?RUB),
+    payout_flow = ?FINAL_CASH_FLOW,
+    summary = PayoutSummary,
+    type = Type
+}).
+
+-define(PAYOUT_SUMMARY_ITEM, #payout_processing_PayoutSummaryItem{
+    amount = ?INTEGER,
+    fee = ?INTEGER,
+    currency_symbolic_code = ?RUB,
+    from_time = ?TIMESTAMP,
+    to_time = ?TIMESTAMP,
+    operation_type = payment,
+    count = ?INTEGER
+}).
+
+-define(PAYOUT_BANK_ACCOUNT_RUS,
+    {bank_account,
+        {russian_payout_account, #payout_processing_RussianPayoutAccount{
+            bank_account = #domain_RussianBankAccount{
+                account = <<"12345678901234567890">>,
+                bank_name = ?STRING,
+                bank_post_account = <<"12345678901234567890">>,
+                bank_bik = <<"123456789">>
+            },
+            inn = ?STRING,
+            purpose = ?STRING,
+            legal_agreement = ?LEGAL_AGREEMENT
+        }}}
+).
 
 -define(REPORT, #reports_Report{
     report_id = ?INTEGER,
@@ -879,5 +952,9 @@
         }
     })
 ).
+
+-define(TEST_CAPI_DEPLOYMENT, <<"justkiddingaround">>).
+-define(TEST_USER_REALM, <<"external">>).
+-define(TEST_RULESET_ID, <<"test/api">>).
 
 -endif.
