@@ -35,7 +35,7 @@ new() ->
 to_list(ACL) ->
     [{S, P} || {{_, S}, P} <- ACL].
 
--spec from_list([{scope(), permission()}]) -> t() | no_return().
+-spec from_list([{scope(), permission()}]) -> t().
 from_list(L) ->
     lists:foldl(fun({S, P}, ACL) -> insert_scope(S, P, ACL) end, new(), L).
 
@@ -97,7 +97,7 @@ compute_permission_priority(V) ->
 
 %%
 
--spec match(scope(), t()) -> [permission()] | no_return().
+-spec match(scope(), t()) -> [permission()].
 match(Scope, ACL) when length(Scope) > 0 ->
     match_rules(Scope, ACL);
 match(Scope, _) ->
