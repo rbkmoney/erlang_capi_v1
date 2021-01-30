@@ -174,7 +174,7 @@ derive_kid_from_public_key_pem_entry(JWK) ->
     JWKPublic = jose_jwk:to_public(JWK),
     {_Module, PublicKey} = JWKPublic#jose_jwk.kty,
     {_PemEntry, Data, _} = public_key:pem_entry_encode('SubjectPublicKeyInfo', PublicKey),
-    base64url:encode(crypto:hash(sha256, Data)).
+    jose_base64url:encode(crypto:hash(sha256, Data)).
 
 -type store_opts() :: #{
     kid => fun((key()) -> kid())

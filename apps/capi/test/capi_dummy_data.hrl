@@ -8,6 +8,7 @@
 -include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
 -include_lib("reporter_proto/include/reporter_reports_thrift.hrl").
 
+-define(BADARG(Term), erlang:binary_to_term(erlang:term_to_binary(Term))).
 -define(STRING, <<"TEST">>).
 -define(RUB, <<"RUB">>).
 -define(USD, <<"USD">>).
@@ -62,16 +63,19 @@
 -define(TPL_CASH, {fixed, ?CASH}).
 
 -define(INVOICE_STATUS(Status),
-    case Status of
-        unpaid ->
-            {unpaid, #domain_InvoiceUnpaid{}};
-        paid ->
-            {paid, #domain_InvoicePaid{}};
-        cancelled ->
-            {cancelled, #domain_InvoiceCancelled{details = ?STRING}};
-        fulfilled ->
-            {fulfilled, #domain_InvoiceFulfilled{details = ?STRING}}
-    end
+    erlang:apply(
+        fun
+            (unpaid) ->
+                {unpaid, #domain_InvoiceUnpaid{}};
+            (paid) ->
+                {paid, #domain_InvoicePaid{}};
+            (cancelled) ->
+                {cancelled, #domain_InvoiceCancelled{details = ?STRING}};
+            (fulfilled) ->
+                {fulfilled, #domain_InvoiceFulfilled{details = ?STRING}}
+        end,
+        [Status]
+    )
 ).
 
 -define(INVOICE, #domain_Invoice{

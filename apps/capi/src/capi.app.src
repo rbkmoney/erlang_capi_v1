@@ -19,7 +19,6 @@
         cowboy_cors,
         cowboy_draining_server,
         cowboy_access_log,
-        base64url,
         snowflake,
         woody_user_identity,
         payproc_errors,
@@ -29,11 +28,5 @@
         prometheus_cowboy,
         bouncer_client
     ]},
-    {env, []},
-    {modules, []},
-    {maintainers, [
-        "Artem Ocheredko <galaxie.stern@gmail.com>"
-    ]},
-    {licenses, []},
-    {links, []}
+    {env, []}
 ]}.
