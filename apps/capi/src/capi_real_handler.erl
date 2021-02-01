@@ -804,14 +804,8 @@ process_request('UpdateInvoiceTemplate', Req, ReqSt0) ->
                     reply_not_found(<<"Invoice Template not found">>, ReqSt1)
             end
     catch
-        throw:#payproc_InvalidUser{} ->
-            {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
-        throw:#payproc_InvoiceTemplateNotFound{} ->
-            {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
-        throw:#payproc_InvoiceTemplateRemoved{} ->
-            {ok, {404, #{}, general_error(<<"Invoice Template not found">>)}};
         throw:zero_invoice_lifetime ->
-            {ok, {400, #{}, logic_error(invalidRequest, <<"Lifetime cannot be zero">>)}}
+            reply_bad_request(invalidRequest, <<"Lifetime cannot be zero">>, ReqSt1)
     end;
 process_request('DeleteInvoiceTemplate', Req, ReqSt0) ->
     InvoiceTemplateID = maps:get('invoiceTemplateID', Req),
