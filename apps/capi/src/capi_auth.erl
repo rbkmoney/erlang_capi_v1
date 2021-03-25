@@ -15,7 +15,9 @@
 -export([get_resource_hierarchy/0]).
 
 -type claims() :: capi_authorizer_jwt:claims().
--type context() :: {claims(), capi_authorizer_jwt:metadata()}.
+-type context() ::
+    {auth_data, capi_token_keeper:auth_data()}
+    | {legacy, {claims(), capi_authorizer_jwt:metadata()}}.
 
 -type provider() ::
     {bouncer, capi_bouncer_context:fragments(), woody_context:ctx()}
@@ -31,12 +33,13 @@
 
 -spec authorize_api_key(
     OperationID :: swag_server:operation_id(),
-    ApiKey :: swag_server:api_key()
+    ApiKey :: swag_server:api_key(),
+    ReqContext :: swag_server:request_context()
 ) -> {true, Context :: context()} | false.
-authorize_api_key(OperationID, ApiKey) ->
+authorize_api_key(OperationID, ApiKey, ReqContext) ->
     case parse_api_key(ApiKey) of
         {ok, {Type, Credentials}} ->
-            case authorize_api_key_type(Type, Credentials) of
+            case authorize_api_key_type(Type, Credentials, ReqContext) of
                 {ok, Context} ->
                     {true, Context};
                 {error, Error} ->
@@ -65,11 +68,25 @@ parse_api_key(ApiKey) ->
     Type :: atom(),
     Credentials :: binary()
 ) -> {ok, Context :: context()} | {error, Reason :: atom()}.
-authorize_api_key_type(bearer, Token) ->
+authorize_api_key_type(bearer, Token, ReqContext) ->
     % NOTE
     % We are knowingly delegating actual request authorization to the logic handler
     % so we could gather more data to perform fine-grained access control.
-    capi_authorizer_jwt:verify(Token).
+    case capi_token_keeper:get_authdata_by_token(Token, make_source_context(ReqContext)) of
+        {ok, AuthData} ->
+            {auth_data, AuthData};
+        _ ->
+            {legacy, api_authorizer_jwt:verify(Token)}
+    end.
+
+-spec make_source_context(swag_server:request_context()) -> capi_token_keeper:token_source_context() | undefined.
+make_source_context(#{cowboy_req := CowboyReq}) ->
+    case cowboy_req:header(<<"origin">>, CowboyReq) of
+        Origin when is_binary(Origin) ->
+            #{request_origin => Origin};
+        undefined ->
+            undefined
+    end.
 
 %%
 
@@ -91,7 +108,7 @@ init_provider(ReqCtx, WoodyCtx) ->
     end.
 
 init_legacy_provider(ReqCtx) ->
-    {Claims, _} = get_auth_context(ReqCtx),
+    {legacy, {Claims, _}} = get_auth_context(ReqCtx),
     case capi_authorizer_jwt:get_acl(Claims) of
         {ok, ACL} ->
             {ok, {legacy, ACL}};

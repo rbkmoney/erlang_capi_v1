@@ -2,7 +2,6 @@
 
 -include_lib("bouncer_proto/include/bouncer_context_thrift.hrl").
 
--export([extract_context_fragments/2]).
 -export([judge/2]).
 
 -export([get_claim/1]).
@@ -12,22 +11,20 @@
 
 -define(CLAIM_BOUNCER_CTX, <<"bouncer_ctx">>).
 
+-define(NS_TOKENKEEPER, <<"com.rbkmoney.token-keeper">>).
+-define(NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
+
 %%
 
--spec extract_context_fragments(swag_server:request_context(), woody_context:ctx()) ->
+-spec gahter_context_fragments(swag_server:request_context(), woody_context:ctx()) ->
     capi_bouncer_context:fragments() | undefined.
-extract_context_fragments(ReqCtx, WoodyCtx) ->
-    extract_context_fragments([claim, metadata], ReqCtx, WoodyCtx).
-
-extract_context_fragments([Method | Rest], ReqCtx, WoodyCtx) ->
-    case extract_context_fragments_by(Method, get_auth_context(ReqCtx), WoodyCtx) of
-        {FragmentAcc, ExternalFragments} ->
-            {add_requester_context(ReqCtx, FragmentAcc), ExternalFragments};
-        undefined ->
-            extract_context_fragments(Rest, ReqCtx, WoodyCtx)
-    end;
-extract_context_fragments([], _, _) ->
-    undefined.
+gather_context_fragments(ReqCtx, WoodyCtx) ->
+    case get_auth_context(ReqCtx) of
+        {auth_data, AuthData} ->
+            fragments_from_authdata(AuthData, WoodyCtx);
+        {legacy, _} ->
+            undefined
+    end.
 
 -spec judge(capi_bouncer_context:fragments(), woody_context:ctx()) -> capi_auth:resolution().
 judge({Acc, External}, WoodyCtx) ->
@@ -37,6 +34,35 @@ judge({Acc, External}, WoodyCtx) ->
     bouncer_client:judge(RulesetID, JudgeContext, WoodyCtx).
 
 %%
+
+fragments_from_authdata(AuthData) ->
+    Fragments = #{<<"token-keeper">> => capi_token_keeper:get_bouncer_context(AuthData)},
+    maybe_add_userorg(Fragments, AuthData, WoodyCtx).
+
+maybe_add_userorg(Fragments, AuthData, WoodyCtx) ->
+    case is_user_token_access(AuthData) of
+        true ->
+            case bouncer_context_helpers:get_user_orgs_fragment(get_user_id(AuthData), WoodyCtx) of
+                {ok, UserOrgsFragment} ->
+                    Fragments#{<<"userorg">> => UserOrgsFragment};
+                {error, {user, notfound}} ->
+                    Fragments
+            end;
+        false
+            Fragments
+    end.
+
+is_user_token_access(AuthData) ->
+    case capi_token_keeper:get_authority(AuthData) of
+        ?NS_KEYCLOAK ->
+            true;
+        ?NS_TOKENKEEPER ->
+            false
+    end.
+
+get_user_id(AuthData) ->
+    Metadata = capi_token_keeper:get_metadata(?NS_TOKENKEEPER, AuthData),
+    maps:get(<<"user_id">>, Metadata).
 
 extract_context_fragments_by(claim, {Claims, _}, _) ->
     % TODO

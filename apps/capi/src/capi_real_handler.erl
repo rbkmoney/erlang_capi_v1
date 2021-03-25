@@ -30,11 +30,15 @@
 
 -define(CAPI_NS, <<"com.rbkmoney.capi">>).
 
--spec authorize_api_key(swag_server:operation_id(), swag_server:api_key(), swag_server:handler_opts(_)) ->
-    Result :: false | {true, capi_auth:context()}.
-authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
+-spec authorize_api_key(
+    swag_server:operation_id(),
+    swag_server:api_key(),
+    swag_server:request_context(),
+    swag_server:handler_opts(_)
+) -> Result :: false | {true, capi_auth:context()}.
+authorize_api_key(OperationID, ApiKey, Context, _HandlerOpts) ->
     _ = capi_utils:logtag_process(operation_id, OperationID),
-    capi_auth:authorize_api_key(OperationID, ApiKey).
+    capi_auth:authorize_api_key(OperationID, ApiKey, Context).
 
 -spec map_error(atom(), swag_server_validation:error()) -> swag_server:error_reason().
 map_error(validation_error, Error) ->
