@@ -582,7 +582,8 @@ session_token_context_matches(Config) ->
 -spec invoice_access_token_context_matches(config()) -> _.
 invoice_access_token_context_matches(Config) ->
     {ok, AccessToken} = capi_auth:issue_invoice_access_token(?STRING, ?STRING, #{}),
-    _ = mock_woody_client([
+    _ = mock_woody_client(
+        [
             {token_keeper, fun('GetByToken', {Token, _}) ->
                 capi_ct_helper_tk:mock_handler(Token, [
                     {auth, [
