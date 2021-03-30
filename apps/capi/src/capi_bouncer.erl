@@ -2,6 +2,7 @@
 
 -include_lib("bouncer_proto/include/bouncer_context_thrift.hrl").
 
+-export([gather_context_fragments/2]).
 -export([judge/2]).
 
 -export([get_claim/1]).
@@ -11,17 +12,14 @@
 
 -define(CLAIM_BOUNCER_CTX, <<"bouncer_ctx">>).
 
--define(NS_TOKENKEEPER, <<"com.rbkmoney.token-keeper">>).
--define(NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
-
 %%
 
--spec gahter_context_fragments(swag_server:request_context(), woody_context:ctx()) ->
+-spec gather_context_fragments(swag_server:request_context(), woody_context:ctx()) ->
     capi_bouncer_context:fragments() | undefined.
 gather_context_fragments(ReqCtx, WoodyCtx) ->
     case get_auth_context(ReqCtx) of
         {auth_data, AuthData} ->
-            fragments_from_authdata(AuthData, WoodyCtx);
+            fragments_from_authdata(AuthData, ReqCtx, WoodyCtx);
         {legacy, _} ->
             undefined
     end.
@@ -35,91 +33,26 @@ judge({Acc, External}, WoodyCtx) ->
 
 %%
 
-fragments_from_authdata(AuthData) ->
-    Fragments = #{<<"token-keeper">> => capi_token_keeper:get_bouncer_context(AuthData)},
-    maybe_add_userorg(Fragments, AuthData, WoodyCtx).
+fragments_from_authdata(AuthData, ReqCtx, WoodyCtx) ->
+    {Base, External0} = capi_bouncer_context:new(),
+    External1 = External0#{<<"token-keeper">> => capi_token_keeper:get_bouncer_context(AuthData)},
+    {add_requester_context(ReqCtx, Base), maybe_add_userorg(External1, AuthData, WoodyCtx)}.
 
-maybe_add_userorg(Fragments, AuthData, WoodyCtx) ->
-    case is_user_token_access(AuthData) of
+maybe_add_userorg(External, AuthData, WoodyCtx) ->
+    case capi_token_keeper:is_user_access(AuthData) of
         true ->
-            case bouncer_context_helpers:get_user_orgs_fragment(get_user_id(AuthData), WoodyCtx) of
+            UserID = capi_token_keeper:get_subject_id(AuthData),
+            case bouncer_context_helpers:get_user_orgs_fragment(UserID, WoodyCtx) of
                 {ok, UserOrgsFragment} ->
-                    Fragments#{<<"userorg">> => UserOrgsFragment};
+                    External#{<<"userorg">> => UserOrgsFragment};
                 {error, {user, notfound}} ->
-                    Fragments
+                    External
             end;
-        false
-            Fragments
+        false ->
+            External
     end.
 
-is_user_token_access(AuthData) ->
-    case capi_token_keeper:get_authority(AuthData) of
-        ?NS_KEYCLOAK ->
-            true;
-        ?NS_TOKENKEEPER ->
-            false
-    end.
-
-get_user_id(AuthData) ->
-    Metadata = capi_token_keeper:get_metadata(?NS_TOKENKEEPER, AuthData),
-    maps:get(<<"user_id">>, Metadata).
-
-extract_context_fragments_by(claim, {Claims, _}, _) ->
-    % TODO
-    % We deliberately do not handle decoding errors here since we extract claims from verified
-    % tokens only, hence they must be well-formed here.
-    case get_claim(Claims) of
-        {ok, ClaimFragment} ->
-            {Acc, External} = capi_bouncer_context:new(),
-            {Acc, External#{<<"claim">> => ClaimFragment}};
-        undefined ->
-            undefined
-    end;
-extract_context_fragments_by(metadata, AuthCtx = {_, Metadata}, WoodyCtx) ->
-    case Metadata of
-        #{auth_method := AuthMethod} ->
-            build_auth_context_fragments(AuthMethod, AuthCtx, WoodyCtx);
-        #{} ->
-            undefined
-    end.
-
--spec build_auth_context_fragments(
-    capi_authorizer_jwt:auth_method(),
-    capi_auth:context(),
-    woody_context:ctx()
-) -> capi_bouncer_context:fragments().
-build_auth_context_fragments(user_session_token, {Claims, Metadata}, WoodyCtx) ->
-    UserID = capi_authorizer_jwt:get_subject_id(Claims),
-    Expiration = capi_authorizer_jwt:get_expires_at(Claims),
-    {Acc0, External} = capi_bouncer_context:new(),
-    Acc1 = bouncer_context_helpers:add_user(
-        #{
-            id => UserID,
-            email => capi_authorizer_jwt:get_subject_email(Claims),
-            realm => #{id => maps:get(user_realm, Metadata, undefined)}
-        },
-        Acc0
-    ),
-    Acc2 = bouncer_context_helpers:add_auth(
-        #{
-            method => <<"SessionToken">>,
-            expiration => make_auth_expiration(Expiration),
-            token => #{id => capi_authorizer_jwt:get_token_id(Claims)}
-        },
-        Acc1
-    ),
-    case bouncer_context_helpers:get_user_orgs_fragment(UserID, WoodyCtx) of
-        {ok, UserOrgsFragment} ->
-            {Acc2, External#{<<"userorg">> => UserOrgsFragment}};
-        {error, {user, notfound}} ->
-            {Acc2, External}
-    end.
-
-make_auth_expiration(Timestamp) when is_integer(Timestamp) ->
-    genlib_rfc3339:format(Timestamp, second);
-make_auth_expiration(unlimited) ->
-    undefined.
-
+-spec get_auth_context(swag_server:request_context()) -> capi_auth:context().
 get_auth_context(#{auth_context := AuthCtx}) ->
     AuthCtx.
 

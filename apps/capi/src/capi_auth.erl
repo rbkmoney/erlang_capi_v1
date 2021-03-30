@@ -1,6 +1,6 @@
 -module(capi_auth).
 
--export([authorize_api_key/2]).
+-export([authorize_api_key/3]).
 -export([init_provider/2]).
 -export([authorize_operation/2]).
 
@@ -9,8 +9,7 @@
 -export([issue_customer_access_token/3]).
 
 -export([get_subject_id/1]).
--export([get_claim/2]).
--export([get_claim/3]).
+-export([get_subject_email/1]).
 
 -export([get_resource_hierarchy/0]).
 
@@ -66,17 +65,36 @@ parse_api_key(ApiKey) ->
 
 -spec authorize_api_key_type(
     Type :: atom(),
-    Credentials :: binary()
+    Credentials :: binary(),
+    ReqContext :: swag_server:request_context()
 ) -> {ok, Context :: context()} | {error, Reason :: atom()}.
 authorize_api_key_type(bearer, Token, ReqContext) ->
     % NOTE
     % We are knowingly delegating actual request authorization to the logic handler
     % so we could gather more data to perform fine-grained access control.
-    case capi_token_keeper:get_authdata_by_token(Token, make_source_context(ReqContext)) of
+    case get_authdata_by_token(Token, ReqContext) of
         {ok, AuthData} ->
-            {auth_data, AuthData};
-        _ ->
-            {legacy, api_authorizer_jwt:verify(Token)}
+            {ok, {auth_data, AuthData}};
+        {error, _} ->
+            case capi_authorizer_jwt:verify(Token) of
+                {ok, TokenInfo} ->
+                    {ok, {legacy, TokenInfo}};
+                {error, _Reason} = Error ->
+                    Error
+            end
+    end.
+
+-spec get_authdata_by_token(
+    Token :: binary(),
+    ReqContext :: swag_server:request_context()
+) -> {ok, capi_token_keeper:auth_data()} | {error, Reason :: atom()}.
+get_authdata_by_token(Token, ReqContext) ->
+    try
+        capi_token_keeper:get_authdata_by_token(Token, make_source_context(ReqContext))
+    catch
+        %% @TODO Feels like this should be logged somehow
+        error:Reason ->
+            {error, Reason}
     end.
 
 -spec make_source_context(swag_server:request_context()) -> capi_token_keeper:token_source_context() | undefined.
@@ -100,7 +118,7 @@ init_provider(ReqCtx, WoodyCtx) ->
     % number of various access tokens will probably be in-flight at the time of service update
     % rollout. And if we ever receive such token it should be better to handle it through legacy
     % authz machinery, since we have no simple way to extract required bouncer context out of it.
-    case capi_bouncer:extract_context_fragments(ReqCtx, WoodyCtx) of
+    case capi_bouncer:gather_context_fragments(ReqCtx, WoodyCtx) of
         Fragments when Fragments /= undefined ->
             {ok, {bouncer, Fragments, WoodyCtx}};
         undefined ->
@@ -258,16 +276,16 @@ make_auth_expiration(unlimited) ->
     undefined.
 
 -spec get_subject_id(context()) -> binary().
-get_subject_id({Claims, _}) ->
+get_subject_id({auth_data, AuthData}) ->
+    capi_token_keeper:get_subject_id(AuthData);
+get_subject_id({legacy, {Claims, _}}) ->
     capi_authorizer_jwt:get_subject_id(Claims).
 
--spec get_claim(binary(), context()) -> term().
-get_claim(ClaimName, {Claims, _}) ->
-    maps:get(ClaimName, Claims).
-
--spec get_claim(binary(), context(), term()) -> term().
-get_claim(ClaimName, {Claims, _}, Default) ->
-    maps:get(ClaimName, Claims, Default).
+-spec get_subject_email(context()) -> binary().
+get_subject_email({auth_data, AuthData}) ->
+    capi_token_keeper:get_subject_email(AuthData);
+get_subject_email({legacy, {Claims, _}}) ->
+    capi_authorizer_jwt:get_subject_email(Claims).
 
 %%
 

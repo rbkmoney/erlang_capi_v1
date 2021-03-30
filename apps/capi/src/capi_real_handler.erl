@@ -14,7 +14,7 @@
 -behaviour(swag_server_logic_handler).
 
 %% API callbacks
--export([authorize_api_key/3]).
+-export([authorize_api_key/4]).
 -export([handle_request/4]).
 -export([map_error/2]).
 
@@ -1871,8 +1871,7 @@ collect_user_identity(AuthContext) ->
         id => capi_auth:get_subject_id(AuthContext),
         % FIXME
         realm => ?REALM,
-        email => capi_auth:get_claim(<<"email">>, AuthContext, undefined),
-        username => capi_auth:get_claim(<<"name">>, AuthContext, undefined)
+        email => capi_auth:get_subject_email(AuthContext)
     }).
 
 logic_error(Code, Message) ->
@@ -4810,7 +4809,7 @@ create_party(PartyID, ReqSt = #reqst{request_ctx = ReqCtx}) ->
     % creating a party.
     PartyParams = #payproc_PartyParams{
         contact_info = #domain_PartyContactInfo{
-            email = capi_auth:get_claim(<<"email">>, get_auth_context(ReqCtx))
+            email = capi_auth:get_subject_email(get_auth_context(ReqCtx))
         }
     },
     Result = service_call(party_management, 'Create', {_UserInfo = undefined, PartyID, PartyParams}, ReqSt),

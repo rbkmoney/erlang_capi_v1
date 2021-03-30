@@ -5,55 +5,82 @@
 
 %% API functions
 
--export([get_metadata/2]).
+-export([get_authority/1]).
 -export([get_bouncer_context/1]).
+-export([get_metadata/1]).
+
+-export([get_subject_id/1]).
+-export([get_subject_email/1]).
+-export([is_user_access/1]).
 
 -export([get_authdata_by_token/2]).
 
 %% API types
 
+-type authority() :: binary().
+
 -type token() :: binary().
 -type token_source_context() :: #{request_origin := binary()}.
 
 -type auth_data() :: tk_token_keeper_thrift:'AuthData'().
+-type token_source_context_encoded() :: tk_token_keeper_thrift:'TokenSourceContext'().
 -type bouncer_context() :: tk_context_thrift:'ContextFragment'().
 
 -type metadata() :: #{metadata_ns() => #{binary() => binary()}}.
 -type metadata_ns() :: binary().
 
+-export_type([authority/0]).
 -export_type([token/0]).
 -export_type([token_source_context/0]).
 -export_type([auth_data/0]).
 -export_type([metadata/0]).
 -export_type([metadata_ns/0]).
 
-%% Internal types
+%%
 
--type woody_context() :: woody_context:ctx().
+-define(NS_TOKENKEEPER, <<"com.rbkmoney.token-keeper">>).
+-define(NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
 
 %%
 %% API functions
 %%
 
--spec get_metadata(metadata_ns(), auth_data()) ->
-    metadata().
-get_metadata(Namespace, #token_keeper_AuthData{metadata = Metadata}) ->
-    maps:get(Namespace, Metadata).
+-spec get_authority(auth_data()) -> authority().
+get_authority(#token_keeper_AuthData{authority = Authority}) ->
+    Authority.
 
--spec get_bouncer_context(auth_data()) ->
-    bouncer_context().
+-spec get_bouncer_context(auth_data()) -> {encoded_fragment, bouncer_context()}.
 get_bouncer_context(#token_keeper_AuthData{context = Context}) ->
-    Context.
+    {encoded_fragment, Context}.
 
--spec get_authdata_by_token(token(), token_source_context() | undefined, woody_context()) ->
-    {ok, auth_data()} | {error, _Reason}.
-get_authdata_by_token(Token, TokenSource, WoodyContext) ->
-    case get_by_token_(Token, encode_token_source(TokenSource), WoodyContext) of
-        {ok, #token_keeper_AuthData{context = Context}} ->
-            {ok, Context};
-        {error, _} = Error ->
-            Error
+-spec get_metadata(auth_data()) -> metadata().
+get_metadata(#token_keeper_AuthData{metadata = Metadata}) ->
+    maps:get(?NS_TOKENKEEPER, Metadata, #{}).
+
+%%
+
+-spec get_subject_id(auth_data()) -> binary() | undefined.
+get_subject_id(AuthData) ->
+    maps:get(<<"user_id">>, get_metadata(AuthData), undefined).
+
+-spec get_subject_email(auth_data()) -> binary() | undefined.
+get_subject_email(AuthData) ->
+    maps:get(<<"user_email">>, get_metadata(AuthData), undefined).
+
+-spec is_user_access(auth_data()) -> boolean().
+is_user_access(AuthData) ->
+    case get_authority(AuthData) of
+        ?NS_KEYCLOAK ->
+            true;
+        ?NS_TOKENKEEPER ->
+            false
     end.
+
+%%
+
+-spec get_authdata_by_token(token(), token_source_context() | undefined) -> {ok, auth_data()} | {error, _Reason}.
+get_authdata_by_token(Token, TokenSource) ->
+    call_get_by_token(Token, encode_token_source(TokenSource), woody_context:new()).
 
 %%
 %% Internal functions
@@ -64,7 +91,10 @@ encode_token_source(#{request_origin := Origin}) ->
 encode_token_source(undefined) ->
     #token_keeper_TokenSourceContext{}.
 
-get_by_token_(Token, TokenSourceContext, WoodyContext) ->
+-spec call_get_by_token(token(), token_source_context_encoded(), woody_context:ctx()) ->
+    {ok, auth_data()}
+    | {error, {token, invalid} | {auth_data, not_found | revoked} | {context, creation_failed}}.
+call_get_by_token(Token, TokenSourceContext, WoodyContext) ->
     case capi_woody_client:call_service(token_keeper, 'GetByToken', {Token, TokenSourceContext}, WoodyContext) of
         {ok, AuthData} ->
             {ok, AuthData};
