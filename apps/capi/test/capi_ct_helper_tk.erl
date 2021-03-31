@@ -4,31 +4,52 @@
 -include_lib("token_keeper_proto/include/tk_context_thrift.hrl").
 
 -define(NS_TOKENKEEPER, <<"com.rbkmoney.token-keeper">>).
+-define(NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
 
+-define(NS_APIKEYMGMT, <<"com.rbkmoney.apikeymgmt">>).
+
+-export([not_found_handler/2]).
 -export([default_handler/2]).
--export([mock_handler/2]).
+-export([mock_handler/4]).
+
+-spec not_found_handler(Op :: atom(), Args :: tuple()) -> {error, _}.
+not_found_handler('GetByToken', _) ->
+    woody_error:raise(business, #token_keeper_AuthDataNotFound{}).
 
 -spec default_handler(Op :: atom(), Args :: tuple()) -> {ok, _} | {error, _}.
 default_handler('GetByToken', {Token, _}) ->
-    mock_handler(Token, [
-        {user, [id, email, realm, orgs]},
-        {auth, [{method, <<"SessionToken">>}, expiration, token]}
-    ]).
+    mock_handler(
+        Token,
+        keycloak,
+        [
+            {user, [id, email, realm]},
+            {auth, [{method, <<"SessionToken">>}, expiration, token]}
+        ],
+        [user_session]
+    ).
 
--spec mock_handler(Token :: binary(), Spec :: any()) -> {ok, _} | {error, _}.
-mock_handler(Token, Spec) ->
+-spec mock_handler(Token :: binary(), Authority :: atom(), ContextSpec :: any(), MetadataSpec :: any()) ->
+    {ok, _} | {error, _}.
+mock_handler(Token, Authority, ContextSpec, MetadataSpec) ->
     case capi_authorizer_jwt:verify(Token) of
         {ok, TokenInfo} ->
-            {ok, #token_keeper_AuthData{
+            AuthorityNs = get_authority_ns(Authority),
+            AuthData = #token_keeper_AuthData{
                 token = Token,
                 status = active,
-                context = encode_context(get_context(TokenInfo, Spec)),
-                authority = ?NS_TOKENKEEPER,
-                metadata = #{?NS_TOKENKEEPER => get_metadata(TokenInfo)}
-            }};
+                context = encode_context(get_context(TokenInfo, ContextSpec)),
+                authority = AuthorityNs,
+                metadata = #{?NS_APIKEYMGMT => get_metadata(TokenInfo, MetadataSpec)}
+            },
+            {ok, AuthData};
         {error, _} ->
-            {error, #token_keeper_AuthDataNotFound{}}
+            woody_error:raise(business, #token_keeper_AuthDataNotFound{})
     end.
+
+get_authority_ns(keycloak) ->
+    ?NS_KEYCLOAK;
+get_authority_ns(token_keeper) ->
+    ?NS_TOKENKEEPER.
 
 get_context({Claims, _}, Spec) ->
     Acc0 = bouncer_context_helpers:empty(),
@@ -79,52 +100,7 @@ get_user_fragment_value({email, Email}, _Claims) ->
 get_user_fragment_value(realm, _Claims) ->
     #{id => <<"external">>};
 get_user_fragment_value({realm, RealmID}, _Claims) ->
-    #{id => RealmID};
-get_user_fragment_value(orgs, Claims) ->
-    UserID = capi_authorizer_jwt:get_subject_id(Claims),
-    [
-        #{
-            id => UserID,
-            owner => #{id => UserID},
-            party => #{id => UserID}
-        }
-    ];
-get_user_fragment_value({orgs, OrgSpecs}, Claims) ->
-    lists:foldl(
-        fun(OrgSpec, Acc0) ->
-            [assemble_user_orgs_spec(OrgSpec, Claims) | Acc0]
-        end,
-        [],
-        OrgSpecs
-    ).
-
-assemble_user_orgs_spec(OrgSpec, Claims) ->
-    lists:foldl(
-        fun(SpecFragment, Acc0) ->
-            FragName = get_user_org_fragment_name(SpecFragment, Claims),
-            Acc0#{FragName => get_user_org_fragment_value(SpecFragment, Claims)}
-        end,
-        #{},
-        OrgSpec
-    ).
-
-get_user_org_fragment_name(Atom, _Claims) when is_atom(Atom) ->
-    Atom;
-get_user_org_fragment_name({Atom, _Spec}, _Claims) when is_atom(Atom) ->
-    Atom.
-
-get_user_org_fragment_value(id, Claims) ->
-    capi_authorizer_jwt:get_subject_id(Claims);
-get_user_org_fragment_value({id, ID}, _Claims) ->
-    ID;
-get_user_org_fragment_value(owner, Claims) ->
-    #{id => capi_authorizer_jwt:get_subject_id(Claims)};
-get_user_org_fragment_value({owner, OwnerID}, _Claims) ->
-    #{id => OwnerID};
-get_user_org_fragment_value(party, Claims) ->
-    #{id => capi_authorizer_jwt:get_subject_id(Claims)};
-get_user_org_fragment_value({party, PartyID}, _Claims) ->
-    #{id => PartyID}.
+    #{id => RealmID}.
 
 assemble_auth_fragment(AuthSpec, Claims) ->
     lists:foldl(
@@ -185,14 +161,25 @@ get_auth_scope_fragment_value(party, Claims) ->
 get_auth_scope_fragment_value({Name, EntityID}, _Claims) when is_atom(Name) ->
     #{id => EntityID}.
 
-get_metadata({Claims, _}) ->
-    UserID = capi_authorizer_jwt:get_subject_id(Claims),
-    Email = capi_authorizer_jwt:get_subject_email(Claims),
-    genlib_map:compact(#{
-        <<"party_id">> => UserID,
-        <<"user_id">> => UserID,
-        <<"user_email">> => Email
-    }).
+get_metadata({Claims, _}, MetadataSpec) ->
+    Metadata = lists:foldl(
+        fun(SpecFragment, Acc0) ->
+            fold_metadata_spec(SpecFragment, Claims, Acc0)
+        end,
+        #{},
+        MetadataSpec
+    ),
+    genlib_map:compact(Metadata).
+
+fold_metadata_spec(user_session, Claims, Acc0) ->
+    Acc0#{
+        <<"user_id">> => capi_authorizer_jwt:get_subject_id(Claims),
+        <<"user_email">> => capi_authorizer_jwt:get_subject_email(Claims)
+    };
+fold_metadata_spec(api_token, Claims, Acc0) ->
+    Acc0#{
+        <<"party_id">> => capi_authorizer_jwt:get_subject_id(Claims)
+    }.
 
 encode_context(Context) ->
     #bctx_ContextFragment{

@@ -41,6 +41,8 @@
 -define(NS_TOKENKEEPER, <<"com.rbkmoney.token-keeper">>).
 -define(NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
 
+-define(NS_APIKEYMGMT, <<"com.rbkmoney.apikeymgmt">>).
+
 %%
 %% API functions
 %%
@@ -55,13 +57,18 @@ get_bouncer_context(#token_keeper_AuthData{context = Context}) ->
 
 -spec get_metadata(auth_data()) -> metadata().
 get_metadata(#token_keeper_AuthData{metadata = Metadata}) ->
-    maps:get(?NS_TOKENKEEPER, Metadata, #{}).
+    maps:get(?NS_APIKEYMGMT, Metadata, #{}).
 
 %%
 
 -spec get_subject_id(auth_data()) -> binary() | undefined.
 get_subject_id(AuthData) ->
-    maps:get(<<"user_id">>, get_metadata(AuthData), undefined).
+    Key =
+        case is_user_access(AuthData) of
+            true -> <<"user_id">>;
+            false -> <<"party_id">>
+        end,
+    maps:get(Key, get_metadata(AuthData), undefined).
 
 -spec get_subject_email(auth_data()) -> binary() | undefined.
 get_subject_email(AuthData) ->

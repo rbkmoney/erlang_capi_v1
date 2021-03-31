@@ -89,13 +89,7 @@ authorize_api_key_type(bearer, Token, ReqContext) ->
     ReqContext :: swag_server:request_context()
 ) -> {ok, capi_token_keeper:auth_data()} | {error, Reason :: atom()}.
 get_authdata_by_token(Token, ReqContext) ->
-    try
-        capi_token_keeper:get_authdata_by_token(Token, make_source_context(ReqContext))
-    catch
-        %% @TODO Feels like this should be logged somehow
-        error:Reason ->
-            {error, Reason}
-    end.
+    capi_token_keeper:get_authdata_by_token(Token, make_source_context(ReqContext)).
 
 -spec make_source_context(swag_server:request_context()) -> capi_token_keeper:token_source_context() | undefined.
 make_source_context(#{cowboy_req := CowboyReq}) ->
