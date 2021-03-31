@@ -12,7 +12,7 @@
 -export([default_handler/2]).
 -export([mock_handler/4]).
 
--spec not_found_handler(Op :: atom(), Args :: tuple()) -> {error, _}.
+-spec not_found_handler(Op :: atom(), Args :: tuple()) -> no_return().
 not_found_handler('GetByToken', _) ->
     woody_error:raise(business, #token_keeper_AuthDataNotFound{}).
 

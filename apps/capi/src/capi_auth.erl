@@ -67,7 +67,7 @@ parse_api_key(ApiKey) ->
     Type :: atom(),
     Credentials :: binary(),
     ReqContext :: swag_server:request_context()
-) -> {ok, Context :: context()} | {error, Reason :: atom()}.
+) -> {ok, Context :: context()} | {error, Reason :: term()}.
 authorize_api_key_type(bearer, Token, ReqContext) ->
     % NOTE
     % We are knowingly delegating actual request authorization to the logic handler
@@ -87,7 +87,7 @@ authorize_api_key_type(bearer, Token, ReqContext) ->
 -spec get_authdata_by_token(
     Token :: binary(),
     ReqContext :: swag_server:request_context()
-) -> {ok, capi_token_keeper:auth_data()} | {error, Reason :: atom()}.
+) -> {ok, capi_token_keeper:auth_data()} | {error, Reason :: term()}.
 get_authdata_by_token(Token, ReqContext) ->
     capi_token_keeper:get_authdata_by_token(Token, make_source_context(ReqContext)).
 
