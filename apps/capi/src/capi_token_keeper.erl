@@ -8,10 +8,11 @@
 -export([get_authority/1]).
 -export([get_bouncer_context/1]).
 -export([get_metadata/1]).
+-export([get_metadata/2]).
 
 -export([get_subject_id/1]).
 -export([get_subject_email/1]).
--export([is_user_access/1]).
+-export([is_user_session/1]).
 
 -export([get_authdata_by_token/2]).
 
@@ -26,7 +27,8 @@
 -type token_source_context_encoded() :: tk_token_keeper_thrift:'TokenSourceContext'().
 -type bouncer_context() :: tk_context_thrift:'ContextFragment'().
 
--type metadata() :: #{metadata_ns() => #{binary() => binary()}}.
+-type metadata() :: #{metadata_ns() => metadata_content()}.
+-type metadata_content() :: #{binary() => binary()}.
 -type metadata_ns() :: binary().
 
 -export_type([authority/0]).
@@ -34,14 +36,18 @@
 -export_type([token_source_context/0]).
 -export_type([auth_data/0]).
 -export_type([metadata/0]).
+-export_type([metadata_content/0]).
 -export_type([metadata_ns/0]).
 
 %%
 
--define(NS_TOKENKEEPER, <<"com.rbkmoney.token-keeper">>).
--define(NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
+-define(AUTHORITY_USER_SESSION, <<"com.rbkmoney.keycloak">>).
+-define(META_NS_USER_SESSION, <<"com.rbkmoney.keycloak">>).
+-define(META_NS_API_KEY, <<"com.rbkmoney.apikeymgmt">>).
+-define(META_NS_DETECTOR, <<"com.rbkmoney.token-keeper.detector">>).
 
--define(NS_APIKEYMGMT, <<"com.rbkmoney.apikeymgmt">>).
+-define(USER_SESSION_CLASS, <<"user_session_token">>).
+-define(API_KEY_CLASS, <<"phony_api_key">>).
 
 %%
 %% API functions
@@ -57,29 +63,44 @@ get_bouncer_context(#token_keeper_AuthData{context = Context}) ->
 
 -spec get_metadata(auth_data()) -> metadata().
 get_metadata(#token_keeper_AuthData{metadata = Metadata}) ->
-    maps:get(?NS_APIKEYMGMT, Metadata, #{}).
+    Metadata.
+
+-spec get_metadata(metadata_ns(), auth_data()) -> metadata_content() | undefined.
+get_metadata(MetadataNS, #token_keeper_AuthData{metadata = Metadata}) ->
+    maps:get(MetadataNS, Metadata, undefined).
 
 %%
 
 -spec get_subject_id(auth_data()) -> binary() | undefined.
 get_subject_id(AuthData) ->
-    Key =
-        case is_user_access(AuthData) of
-            true -> <<"user_id">>;
-            false -> <<"party_id">>
+    {MetaNS, Key} =
+        case is_user_session(AuthData) of
+            true -> {get_user_session_meta_namespace(), <<"user_id">>};
+            false -> {get_api_key_meta_namespace(), <<"party_id">>}
         end,
-    maps:get(Key, get_metadata(AuthData), undefined).
+    case get_metadata(MetaNS, AuthData) of
+        Metadata when Metadata =/= undefined ->
+            maps:get(Key, Metadata, undefined);
+        undefined ->
+            undefined
+    end.
 
 -spec get_subject_email(auth_data()) -> binary() | undefined.
 get_subject_email(AuthData) ->
-    maps:get(<<"user_email">>, get_metadata(AuthData), undefined).
+    case get_metadata(get_user_session_meta_namespace(), AuthData) of
+        Metadata when Metadata =/= undefined ->
+            maps:get(<<"user_email">>, Metadata, undefined);
+        undefined ->
+            undefined
+    end.
 
--spec is_user_access(auth_data()) -> boolean().
-is_user_access(AuthData) ->
+-spec is_user_session(auth_data()) -> boolean().
+is_user_session(AuthData) ->
+    UserSessionAuthority = get_user_session_authority_name(),
     case get_authority(AuthData) of
-        ?NS_KEYCLOAK ->
-            true;
-        ?NS_TOKENKEEPER ->
+        UserSessionAuthority ->
+            assert_detector_meta(AuthData, ?USER_SESSION_CLASS);
+        _ ->
             false
     end.
 
@@ -92,6 +113,38 @@ get_authdata_by_token(Token, TokenSource) ->
 %%
 %% Internal functions
 %%
+
+%% @TODO config options maybe?
+get_user_session_authority_name() ->
+    ?AUTHORITY_USER_SESSION.
+
+get_user_session_meta_namespace() ->
+    ?META_NS_USER_SESSION.
+
+get_api_key_meta_namespace() ->
+    ?META_NS_API_KEY.
+
+get_detector_meta_namespace() ->
+    ?META_NS_DETECTOR.
+
+get_detector_class(AuthData) ->
+    case get_metadata(get_detector_meta_namespace(), AuthData) of
+        #{<<"class">> := Class} ->
+            Class;
+        undefined ->
+            undefined
+    end.
+
+assert_detector_meta(AuthData, TargetClass) ->
+    case get_detector_class(AuthData) of
+        TargetClass ->
+            true;
+        undefined ->
+            %% We assume here that no detection was performed and we should trust the actual authority id
+            true;
+        _SomeOtherClass ->
+            false
+    end.
 
 encode_token_source(#{request_origin := Origin}) ->
     #token_keeper_TokenSourceContext{request_origin = Origin};

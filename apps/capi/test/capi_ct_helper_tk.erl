@@ -3,29 +3,32 @@
 -include_lib("token_keeper_proto/include/tk_token_keeper_thrift.hrl").
 -include_lib("token_keeper_proto/include/tk_context_thrift.hrl").
 
--define(NS_TOKENKEEPER, <<"com.rbkmoney.token-keeper">>).
--define(NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
+-define(TK_META_NS_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
+-define(TK_META_NS_APIKEYMGMT, <<"com.rbkmoney.apikeymgmt">>).
 
--define(NS_APIKEYMGMT, <<"com.rbkmoney.apikeymgmt">>).
+-define(TK_AUTHORITY_KEYCLOAK, <<"com.rbkmoney.keycloak">>).
+-define(TK_AUTHORITY_CAPI, <<"com.rbkmoney.capi">>).
+
+-define(TK_META_NS_DETECTOR, <<"com.rbkmoney.token-keeper.detector">>).
 
 -export([not_found_handler/2]).
--export([default_handler/2]).
+-export([user_session_handler/2]).
 -export([mock_handler/4]).
 
 -spec not_found_handler(Op :: atom(), Args :: tuple()) -> no_return().
 not_found_handler('GetByToken', _) ->
     woody_error:raise(business, #token_keeper_AuthDataNotFound{}).
 
--spec default_handler(Op :: atom(), Args :: tuple()) -> {ok, _} | {error, _}.
-default_handler('GetByToken', {Token, _}) ->
+-spec user_session_handler(Op :: atom(), Args :: tuple()) -> {ok, _} | {error, _}.
+user_session_handler('GetByToken', {Token, _}) ->
     mock_handler(
         Token,
-        keycloak,
+        ?TK_META_NS_KEYCLOAK,
         [
             {user, [id, email, realm]},
             {auth, [{method, <<"SessionToken">>}, expiration, token]}
         ],
-        [user_session]
+        [user_session_meta, {detector_meta, <<"user_session_token">>}]
     ).
 
 -spec mock_handler(Token :: binary(), Authority :: atom(), ContextSpec :: any(), MetadataSpec :: any()) ->
@@ -33,23 +36,17 @@ default_handler('GetByToken', {Token, _}) ->
 mock_handler(Token, Authority, ContextSpec, MetadataSpec) ->
     case capi_authorizer_jwt:verify(Token) of
         {ok, TokenInfo} ->
-            AuthorityNs = get_authority_ns(Authority),
             AuthData = #token_keeper_AuthData{
                 token = Token,
                 status = active,
                 context = encode_context(get_context(TokenInfo, ContextSpec)),
-                authority = AuthorityNs,
-                metadata = #{?NS_APIKEYMGMT => get_metadata(TokenInfo, MetadataSpec)}
+                authority = Authority,
+                metadata = get_metadata(TokenInfo, MetadataSpec)
             },
             {ok, AuthData};
         {error, _} ->
             woody_error:raise(business, #token_keeper_AuthDataNotFound{})
     end.
-
-get_authority_ns(keycloak) ->
-    ?NS_KEYCLOAK;
-get_authority_ns(token_keeper) ->
-    ?NS_TOKENKEEPER.
 
 get_context({Claims, _}, Spec) ->
     Acc0 = bouncer_context_helpers:empty(),
@@ -162,23 +159,30 @@ get_auth_scope_fragment_value({Name, EntityID}, _Claims) when is_atom(Name) ->
     #{id => EntityID}.
 
 get_metadata({Claims, _}, MetadataSpec) ->
-    Metadata = lists:foldl(
+    lists:foldl(
         fun(SpecFragment, Acc0) ->
-            fold_metadata_spec(SpecFragment, Claims, Acc0)
+            maps:merge(Acc0, get_metadata_by_spec(SpecFragment, Claims))
         end,
         #{},
         MetadataSpec
-    ),
-    genlib_map:compact(Metadata).
+    ).
 
-fold_metadata_spec(user_session, Claims, Acc0) ->
-    Acc0#{
-        <<"user_id">> => capi_authorizer_jwt:get_subject_id(Claims),
-        <<"user_email">> => capi_authorizer_jwt:get_subject_email(Claims)
+get_metadata_by_spec(user_session_meta, Claims) ->
+    #{
+        ?TK_META_NS_KEYCLOAK => genlib_map:compact(#{
+            <<"user_id">> => capi_authorizer_jwt:get_subject_id(Claims),
+            <<"user_email">> => capi_authorizer_jwt:get_subject_email(Claims)
+        })
     };
-fold_metadata_spec(api_token, Claims, Acc0) ->
-    Acc0#{
-        <<"party_id">> => capi_authorizer_jwt:get_subject_id(Claims)
+get_metadata_by_spec(api_key_meta, Claims) ->
+    #{
+        ?TK_META_NS_APIKEYMGMT => #{
+            <<"party_id">> => capi_authorizer_jwt:get_subject_id(Claims)
+        }
+    };
+get_metadata_by_spec({detector_meta, Class}, _Claims) ->
+    #{
+        ?TK_META_NS_DETECTOR => #{<<"class">> => Class}
     }.
 
 encode_context(Context) ->

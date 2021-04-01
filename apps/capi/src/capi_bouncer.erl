@@ -39,7 +39,7 @@ fragments_from_authdata(AuthData, ReqCtx, WoodyCtx) ->
     {add_requester_context(ReqCtx, Base), maybe_add_userorg(External1, AuthData, WoodyCtx)}.
 
 maybe_add_userorg(External, AuthData, WoodyCtx) ->
-    case capi_token_keeper:is_user_access(AuthData) of
+    case capi_token_keeper:is_user_session(AuthData) of
         true ->
             UserID = capi_token_keeper:get_subject_id(AuthData),
             case bouncer_context_helpers:get_user_orgs_fragment(UserID, WoodyCtx) of
