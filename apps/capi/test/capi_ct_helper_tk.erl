@@ -31,7 +31,7 @@ user_session_handler('GetByToken', {Token, _}) ->
         [user_session_meta, {detector_meta, <<"user_session_token">>}]
     ).
 
--spec mock_handler(Token :: binary(), Authority :: atom(), ContextSpec :: any(), MetadataSpec :: any()) ->
+-spec mock_handler(Token :: binary(), Authority :: binary(), ContextSpec :: any(), MetadataSpec :: any()) ->
     {ok, _} | {error, _}.
 mock_handler(Token, Authority, ContextSpec, MetadataSpec) ->
     case capi_authorizer_jwt:verify(Token) of
