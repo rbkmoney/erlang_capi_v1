@@ -272,15 +272,20 @@ make_auth_expiration(Timestamp) when is_integer(Timestamp) ->
 make_auth_expiration(unlimited) ->
     undefined.
 
--spec get_subject_id(context()) -> binary().
+-spec get_subject_id(context()) -> binary() | undefined.
 get_subject_id({auth_data, AuthData}) ->
-    capi_token_keeper:get_subject_id(AuthData);
+    case capi_token_keeper:get_user_id(AuthData) of
+        UserID when UserID =/= undefined ->
+            UserID;
+        undefined ->
+            capi_token_keeper:get_party_id(AuthData)
+    end;
 get_subject_id({legacy, {Claims, _}}) ->
     capi_authorizer_jwt:get_subject_id(Claims).
 
--spec get_subject_email(context()) -> binary().
+-spec get_subject_email(context()) -> binary() | undefined.
 get_subject_email({auth_data, AuthData}) ->
-    capi_token_keeper:get_subject_email(AuthData);
+    capi_token_keeper:get_user_email(AuthData);
 get_subject_email({legacy, {Claims, _}}) ->
     capi_authorizer_jwt:get_subject_email(Claims).
 

@@ -28,7 +28,7 @@ user_session_handler('GetByToken', {Token, _}) ->
             {user, [id, email, realm]},
             {auth, [{method, <<"SessionToken">>}, expiration, token]}
         ],
-        [user_session_meta, {detector_meta, <<"user_session_token">>}]
+        [user_session_meta]
     ).
 
 -spec mock_handler(Token :: binary(), Authority :: binary(), ContextSpec :: any(), MetadataSpec :: any()) ->
