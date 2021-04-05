@@ -159,6 +159,9 @@
     user_realm => ?TEST_USER_REALM
 }).
 
+-define(META_NS_USER_SESSION, <<"com.rbkmoney.keycloak">>).
+-define(META_NS_API_KEY, <<"com.rbkmoney.apikeymgmt">>).
+
 -define(badresp(Code), {error, {invalid_response_code, Code}}).
 
 -type test_case_name() :: atom().
@@ -2335,6 +2338,12 @@ start_capi(Keyset, Config) ->
         {lechiffre_opts, #{
             encryption_source => JwkPublSource,
             decryption_sources => [JwkPrivSource]
+        }},
+        {token_keeper_opts, #{
+            meta_namespaces => #{
+                user_session => ?META_NS_USER_SESSION,
+                api_key => ?META_NS_API_KEY
+            }
         }}
     ],
     capi_ct_helper:start_app(capi, CapiEnv).

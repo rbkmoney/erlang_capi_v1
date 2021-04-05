@@ -40,11 +40,6 @@
 -export_type([metadata_ns/0]).
 
 %%
-
--define(META_NS_USER_SESSION, <<"com.rbkmoney.keycloak">>).
--define(META_NS_API_KEY, <<"com.rbkmoney.apikeymgmt">>).
-
-%%
 %% API functions
 %%
 
@@ -91,10 +86,14 @@ get_authdata_by_token(Token, TokenSource, WoodyContext) ->
 
 %% @TODO config options maybe?
 get_meta_namespace_user_session() ->
-    ?META_NS_USER_SESSION.
+    maps:get(user_session, get_meta_ns_conf()).
 
 get_meta_namespace_api_key() ->
-    ?META_NS_API_KEY.
+    maps:get(api_key, get_meta_ns_conf()).
+
+get_meta_ns_conf() ->
+    TKOpts = genlib_app:env(capi, token_keeper_opts, #{}),
+    maps:get(meta_namespaces, TKOpts, #{}).
 
 get_subject_data(Field, Namespace, AuthData) ->
     case get_metadata(Namespace, AuthData) of
