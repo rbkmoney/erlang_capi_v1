@@ -14,7 +14,7 @@
 -export([get_subject_email/1]).
 -export([is_user_session/1]).
 
--export([get_authdata_by_token/2]).
+-export([get_authdata_by_token/3]).
 
 %% API types
 
@@ -106,9 +106,10 @@ is_user_session(AuthData) ->
 
 %%
 
--spec get_authdata_by_token(token(), token_source_context() | undefined) -> {ok, auth_data()} | {error, _Reason}.
-get_authdata_by_token(Token, TokenSource) ->
-    call_get_by_token(Token, encode_token_source(TokenSource), woody_context:new()).
+-spec get_authdata_by_token(token(), token_source_context() | undefined, woody_context:ctx()) ->
+    {ok, auth_data()} | {error, _Reason}.
+get_authdata_by_token(Token, TokenSource, WoodyContext) ->
+    call_get_by_token(Token, encode_token_source(TokenSource), WoodyContext).
 
 %%
 %% Internal functions

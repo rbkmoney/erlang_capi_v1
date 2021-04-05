@@ -53,8 +53,8 @@ maybe_add_userorg(External, AuthData, WoodyCtx) ->
     end.
 
 -spec get_auth_context(swag_server:request_context()) -> capi_auth:context().
-get_auth_context(#{auth_context := AuthCtx}) ->
-    AuthCtx.
+get_auth_context(#{auth_context := {authorized, AuthContext}}) ->
+    AuthContext.
 
 -spec add_requester_context(swag_server:request_context(), capi_bouncer_context:acc()) -> capi_bouncer_context:acc().
 add_requester_context(ReqCtx, FragmentAcc) ->

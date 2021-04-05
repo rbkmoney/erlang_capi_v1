@@ -1,6 +1,6 @@
 -module(capi_auth).
 
--export([authorize_api_key/3]).
+-export([authorize_api_key/4]).
 -export([init_provider/2]).
 -export([authorize_operation/2]).
 
@@ -33,12 +33,13 @@
 -spec authorize_api_key(
     OperationID :: swag_server:operation_id(),
     ApiKey :: swag_server:api_key(),
-    ReqContext :: swag_server:request_context()
+    WoodyCtx :: woody_context:ctx(),
+    CowboyReq :: cowboy_req:req()
 ) -> {true, Context :: context()} | false.
-authorize_api_key(OperationID, ApiKey, ReqContext) ->
+authorize_api_key(OperationID, ApiKey, WoodyCtx, CowboyReq) ->
     case parse_api_key(ApiKey) of
         {ok, {Type, Credentials}} ->
-            case authorize_api_key_type(Type, Credentials, ReqContext) of
+            case authorize_api_key_type(Type, Credentials, WoodyCtx, CowboyReq) of
                 {ok, Context} ->
                     {true, Context};
                 {error, Error} ->
@@ -66,13 +67,14 @@ parse_api_key(ApiKey) ->
 -spec authorize_api_key_type(
     Type :: atom(),
     Credentials :: binary(),
-    ReqContext :: swag_server:request_context()
+    WoodyCtx :: woody_context:ctx(),
+    CowboyReq :: cowboy_req:req()
 ) -> {ok, Context :: context()} | {error, Reason :: term()}.
-authorize_api_key_type(bearer, Token, ReqContext) ->
+authorize_api_key_type(bearer, Token, WoodyCtx, CowboyReq) ->
     % NOTE
     % We are knowingly delegating actual request authorization to the logic handler
     % so we could gather more data to perform fine-grained access control.
-    case get_authdata_by_token(Token, ReqContext) of
+    case get_authdata_by_token(Token, WoodyCtx, CowboyReq) of
         {ok, AuthData} ->
             {ok, {auth_data, AuthData}};
         {error, _} ->
@@ -86,13 +88,14 @@ authorize_api_key_type(bearer, Token, ReqContext) ->
 
 -spec get_authdata_by_token(
     Token :: binary(),
-    ReqContext :: swag_server:request_context()
+    WoodyCtx :: woody_context:ctx(),
+    CowboyReq :: cowboy_req:req()
 ) -> {ok, capi_token_keeper:auth_data()} | {error, Reason :: term()}.
-get_authdata_by_token(Token, ReqContext) ->
-    capi_token_keeper:get_authdata_by_token(Token, make_source_context(ReqContext)).
+get_authdata_by_token(Token, WoodyCtx, CowboyReq) ->
+    capi_token_keeper:get_authdata_by_token(Token, make_source_context(CowboyReq), WoodyCtx).
 
--spec make_source_context(swag_server:request_context()) -> capi_token_keeper:token_source_context() | undefined.
-make_source_context(#{cowboy_req := CowboyReq}) ->
+-spec make_source_context(CowboyReq :: cowboy_req:req()) -> capi_token_keeper:token_source_context() | undefined.
+make_source_context(CowboyReq) ->
     case cowboy_req:header(<<"origin">>, CowboyReq) of
         Origin when is_binary(Origin) ->
             #{request_origin => Origin};
@@ -162,7 +165,7 @@ authorize_acl(OperationID, OperationContext, ACL) ->
             forbidden
     end.
 
-get_auth_context(#{auth_context := AuthContext}) ->
+get_auth_context(#{auth_context := {authorized, AuthContext}}) ->
     AuthContext.
 
 %%

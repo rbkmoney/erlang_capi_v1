@@ -576,7 +576,7 @@ session_token_context_matches(Config) ->
                 user = #bctx_v1_User{
                     id = UserID,
                     realm = ?CTX_ENTITY(?TEST_USER_REALM),
-                    orgs = [#bctx_v1_Organization{id = UserID, owner = ?CTX_ENTITY(UserID)}]
+                    orgs = [#bctx_v1_Organization{id = ?STRING, owner = ?CTX_ENTITY(UserID)}]
                 }
             }
         ),
@@ -2493,7 +2493,7 @@ mock_bouncer_client(SupOrConfig) ->
                             bouncer_context_helpers:make_user_fragment(#{
                                 id => UserID,
                                 realm => #{id => ?TEST_USER_REALM},
-                                orgs => [#{id => UserID, owner => #{id => UserID}, party => #{id => UserID}}]
+                                orgs => [#{id => ?STRING, owner => #{id => UserID}, party => #{id => UserID}}]
                             })
                         ),
                         {ok, Fragment}
