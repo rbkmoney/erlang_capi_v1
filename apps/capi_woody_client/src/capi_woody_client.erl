@@ -87,7 +87,9 @@ get_service_modname(party_management) ->
 get_service_modname(bender) ->
     {bender_thrift, 'Bender'};
 get_service_modname(payout_management) ->
-    {dmsl_payout_processing_thrift, 'PayoutManagement'}.
+    {dmsl_payout_processing_thrift, 'PayoutManagement'};
+get_service_modname(token_keeper) ->
+    {tk_token_keeper_thrift, 'TokenKeeper'}.
 
 get_service_deadline(ServiceName) ->
     ServiceDeadlines = genlib_app:env(?MODULE, service_deadlines, #{}),

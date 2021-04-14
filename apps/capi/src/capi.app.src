@@ -26,7 +26,8 @@
         erl_health,
         prometheus,
         prometheus_cowboy,
-        bouncer_client
+        bouncer_client,
+        token_keeper_proto
     ]},
     {env, []}
 ]}.

@@ -14,7 +14,7 @@
 -behaviour(swag_server_logic_handler).
 
 %% API callbacks
--export([authorize_api_key/3]).
+-export([authorize_api_key/4]).
 -export([handle_request/4]).
 -export([map_error/2]).
 
@@ -30,11 +30,21 @@
 
 -define(CAPI_NS, <<"com.rbkmoney.capi">>).
 
--spec authorize_api_key(swag_server:operation_id(), swag_server:api_key(), swag_server:handler_opts(_)) ->
-    Result :: false | {true, capi_auth:context()}.
-authorize_api_key(OperationID, ApiKey, _HandlerOpts) ->
+-spec authorize_api_key(
+    swag_server:operation_id(),
+    swag_server:api_key(),
+    swag_server:request_context(),
+    swag_server:handler_opts(_)
+) -> Result :: {true, {unauthorized, binary()}}.
+authorize_api_key(OperationID, ApiKey, _Req, _HandlerOpts) ->
     _ = capi_utils:logtag_process(operation_id, OperationID),
-    capi_auth:authorize_api_key(OperationID, ApiKey).
+    %% Since we require the request id field to create a woody context for our trip to token_keeper
+    %% it seems it is no longer possible to perform any authorization in this method.
+    %% To gain this ability back be would need to rewrite the swagger generator to perform its
+    %% request validation checks before this stage.
+    %% But since a decent chunk of authorization logic is already defined in the handler function
+    %% its probably easier to move it all there entirely.
+    {true, {unauthorized, ApiKey}}.
 
 -spec map_error(atom(), swag_server_validation:error()) -> swag_server:error_reason().
 map_error(validation_error, Error) ->
@@ -79,11 +89,13 @@ map_error(validation_error, Error) ->
     ReqCtx :: swag_server:request_context(),
     HandlerOpts :: swag_server:handler_opts(_)
 ) -> {ok | error, swag_server:response()}.
-handle_request(OperationID, Req, ReqCtx, _HandlerOpts) ->
+handle_request(OperationID, Req, ReqCtx0, _HandlerOpts) ->
     _ = logger:info("Processing request ~p", [OperationID]),
     try
+        WoodyCtx0 = create_woody_context(Req),
+        ReqCtx = authorize_api_token(OperationID, ReqCtx0, WoodyCtx0),
         AuthCtx = get_auth_context(ReqCtx),
-        WoodyCtx = create_woody_context(Req, AuthCtx),
+        WoodyCtx = add_woody_user_identity(AuthCtx, WoodyCtx0),
         AuthProvider =
             case capi_auth:init_provider(ReqCtx, WoodyCtx) of
                 {ok, Result} ->
@@ -1856,10 +1868,23 @@ encode_webhook_scope(#{
 service_call(ServiceName, Function, Args, #reqst{woody_ctx = WoodyCtx}) ->
     capi_woody_client:call_service(ServiceName, Function, Args, WoodyCtx).
 
-create_woody_context(#{'X-Request-ID' := RequestID}, AuthContext) ->
+create_woody_context(#{'X-Request-ID' := RequestID}) ->
     RpcID = #{trace_id := TraceID} = woody_context:new_rpc_id(genlib:to_binary(RequestID)),
     _ = logger:debug("Created TraceID:~p for RequestID:~p", [TraceID, RequestID]),
-    WoodyContext = woody_context:new(RpcID),
+    woody_context:new(RpcID).
+
+authorize_api_token(OperationID, ReqCtx = #{auth_context := {unauthorized, ApiKey}}, WoodyContext) ->
+    case capi_auth:authorize_api_key(OperationID, ApiKey, WoodyContext, get_context_req(ReqCtx)) of
+        {true, Context} ->
+            ReqCtx#{auth_context => {authorized, Context}};
+        false ->
+            throw({forbidden, <<"Failed to authorize api token">>})
+    end.
+
+get_context_req(#{cowboy_req := CowboyReq}) ->
+    CowboyReq.
+
+add_woody_user_identity(AuthContext, WoodyContext) ->
     woody_user_identity:put(collect_user_identity(AuthContext), WoodyContext).
 
 collect_user_identity(AuthContext) ->
@@ -1867,8 +1892,7 @@ collect_user_identity(AuthContext) ->
         id => capi_auth:get_subject_id(AuthContext),
         % FIXME
         realm => ?REALM,
-        email => capi_auth:get_claim(<<"email">>, AuthContext, undefined),
-        username => capi_auth:get_claim(<<"name">>, AuthContext, undefined)
+        email => capi_auth:get_subject_email(AuthContext)
     }).
 
 logic_error(Code, Message) ->
@@ -1880,7 +1904,7 @@ general_error(Message) ->
 mk_event_range() ->
     #payproc_EventRange{}.
 
-get_auth_context(#{auth_context := AuthContext}) ->
+get_auth_context(#{auth_context := {authorized, AuthContext}}) ->
     AuthContext.
 
 encode_invoice_params(ID, PartyID, InvoiceParams) ->
@@ -4806,7 +4830,7 @@ create_party(PartyID, ReqSt = #reqst{request_ctx = ReqCtx}) ->
     % creating a party.
     PartyParams = #payproc_PartyParams{
         contact_info = #domain_PartyContactInfo{
-            email = capi_auth:get_claim(<<"email">>, get_auth_context(ReqCtx))
+            email = capi_auth:get_subject_email(get_auth_context(ReqCtx))
         }
     },
     Result = service_call(party_management, 'Create', {_UserInfo = undefined, PartyID, PartyParams}, ReqSt),

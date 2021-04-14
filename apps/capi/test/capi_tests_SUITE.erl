@@ -159,6 +159,9 @@
     user_realm => ?TEST_USER_REALM
 }).
 
+-define(META_NS_USER_SESSION, <<"com.rbkmoney.keycloak">>).
+-define(META_NS_API_KEY, <<"com.rbkmoney.apikeymgmt">>).
+
 -define(badresp(Code), {error, {invalid_response_code, Code}}).
 
 -type test_case_name() :: atom().
@@ -435,62 +438,85 @@ end_per_testcase(_Name, C) ->
 
 -spec woody_unexpected_test(config()) -> _.
 woody_unexpected_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, "spanish inquisition"} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> {ok, "spanish inquisition"} end}
+        ],
+        Config
+    ),
     ?badresp(500) = capi_client_parties:get_my_party(?config(context, Config)).
 
 -spec woody_unavailable_test(config()) -> _.
 woody_unavailable_test(Config) ->
-    _ = capi_ct_helper:start_app(capi_woody_client, [
-        {service_urls, #{
-            party_management => <<"http://spanish.inquision/v1/partymgmt">>
-        }}
-    ]),
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config, #{
+        party_management => <<"http://spanish.inquision/v1/partymgmt">>
+    }),
     ?badresp(503) = capi_client_parties:get_my_party(?config(context, Config)).
 
 -spec woody_retry_test(config()) -> _.
 woody_retry_test(Config) ->
-    _ = capi_ct_helper:start_app(capi_woody_client, [
-        {service_urls, #{
+    _ = mock_woody_client(
+        [{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}],
+        Config,
+        #{
             party_management => <<"http://spanish.inquision/v1/partymgmt">>
-        }},
-        {service_retries, #{
-            party_management => #{
-                'Get' => {linear, 30, 1000},
-                '_' => finish
-            }
-        }},
-        {service_deadlines, #{
-            party_management => 5000
-        }}
-    ]),
+        },
+        [
+            {service_retries, #{
+                party_management => #{
+                    'Get' => {linear, 30, 1000},
+                    '_' => finish
+                }
+            }},
+            {service_deadlines, #{
+                party_management => 5000
+            }}
+        ]
+    ),
     {Time, ?badresp(503)} = timer:tc(capi_client_parties, get_my_party, [?config(context, Config)]),
     _ = ?assert(Time > 4000000),
     _ = ?assert(Time < 6000000).
 
 -spec woody_unknown_test(config()) -> _.
 woody_unknown_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Get', _) -> timer:sleep(60000) end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> timer:sleep(60000) end}
+        ],
+        Config
+    ),
     ?badresp(504) = capi_client_parties:get_my_party(?config(context, Config)).
 
 -spec authorization_positive_lifetime_ok_test(config()) -> _.
-authorization_positive_lifetime_ok_test(_Config) ->
+authorization_positive_lifetime_ok_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     {ok, Token} = issue_token(capi, ?STRING, [], {lifetime, 10}),
     {ok, _} = capi_client_categories:get_categories(get_context(Token)).
 
 -spec authorization_unlimited_lifetime_ok_test(config()) -> _.
-authorization_unlimited_lifetime_ok_test(_Config) ->
+authorization_unlimited_lifetime_ok_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     {ok, Token} = issue_token(capi, ?STRING, [], unlimited),
     {ok, _} = capi_client_categories:get_categories(get_context(Token)).
 
 -spec authorization_far_future_deadline_ok_test(config()) -> _.
-authorization_far_future_deadline_ok_test(_Config) ->
+authorization_far_future_deadline_ok_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     % 01/01/2100 @ 12:00am (UTC)
     {ok, Token} = issue_token(capi, ?STRING, [], {deadline, 4102444800}),
     {ok, _} = capi_client_categories:get_categories(get_context(Token)).
 
 -spec authorization_permission_ok_test(config()) -> _.
 authorization_permission_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> {ok, ?PARTY} end}
+        ],
+        Config
+    ),
     {ok, Token} = issue_token(capi, ?STRING, [{[party], read}], unlimited),
     {ok, _} = capi_client_parties:get_my_party(get_context(Token)).
 
@@ -514,12 +540,14 @@ authorization_error_no_header_test(_Config) ->
     ?badresp(401) = capi_client_categories:get_categories(get_context(Token)).
 
 -spec authorization_error_no_permission_test(config()) -> _.
-authorization_error_no_permission_test(_Config) ->
+authorization_error_no_permission_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:not_found_handler/2}], Config),
     {ok, Token} = issue_token(capi_wo_bouncer, ?STRING, [], {lifetime, 10}),
     ?badresp(401) = capi_client_parties:get_my_party(get_context(Token)).
 
 -spec authorization_bad_token_error_test(config()) -> _.
 authorization_bad_token_error_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:not_found_handler/2}], Config),
     {ok, Token} = issue_dummy_token([{[party], read}], Config),
     ?badresp(401) = capi_client_parties:get_my_party(get_context(Token)).
 
@@ -529,7 +557,13 @@ session_token_context_matches(Config) ->
     Timestamp = <<"2100-01-01T12:00:00Z">>,
     Deadline = {deadline, genlib_rfc3339:parse(Timestamp, second)},
     {ok, SessionToken} = issue_token(capi, UserID, [], Deadline),
-    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> {ok, ?PARTY} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_arbiter(
         ?assertContextMatches(
             #bctx_v1_ContextFragment{
@@ -556,7 +590,27 @@ session_token_context_matches(Config) ->
 -spec invoice_access_token_context_matches(config()) -> _.
 invoice_access_token_context_matches(Config) ->
     {ok, AccessToken} = capi_auth:issue_invoice_access_token(?STRING, ?STRING, #{}),
-    _ = mock_woody_client([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun('GetByToken', {Token, _}) ->
+                capi_ct_helper_tk:mock_handler(
+                    Token,
+                    <<"com.rbkmoney.capi">>,
+                    [
+                        {auth, [
+                            {method, <<"InvoiceAccessToken">>},
+                            expiration,
+                            token,
+                            {scope, [[{party, ?STRING}, {invoice, ?STRING}]]}
+                        ]}
+                    ],
+                    [api_key_meta]
+                )
+            end},
+            {invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_arbiter(
         ?assertContextMatches(
             #bctx_v1_ContextFragment{
@@ -582,7 +636,27 @@ invoice_access_token_context_matches(Config) ->
 -spec invoice_template_access_token_context_matches(config()) -> _.
 invoice_template_access_token_context_matches(Config) ->
     {ok, AccessToken} = capi_auth:issue_invoice_template_access_token(?STRING, ?STRING, #{}),
-    _ = mock_woody_client([{invoice_templating, fun('Get', _) -> {ok, ?INVOICE_TPL} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun('GetByToken', {Token, _}) ->
+                capi_ct_helper_tk:mock_handler(
+                    Token,
+                    <<"com.rbkmoney.capi">>,
+                    [
+                        {auth, [
+                            {method, <<"InvoiceTemplateAccessToken">>},
+                            expiration,
+                            token,
+                            {scope, [[{party, ?STRING}, {invoice_template, ?STRING}]]}
+                        ]}
+                    ],
+                    [api_key_meta]
+                )
+            end},
+            {invoice_templating, fun('Get', _) -> {ok, ?INVOICE_TPL} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_arbiter(
         ?assertContextMatches(
             #bctx_v1_ContextFragment{
@@ -608,7 +682,27 @@ invoice_template_access_token_context_matches(Config) ->
 -spec customer_access_token_context_matches(config()) -> _.
 customer_access_token_context_matches(Config) ->
     {ok, AccessToken} = capi_auth:issue_customer_access_token(?STRING, ?STRING, #{}),
-    _ = mock_woody_client([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun('GetByToken', {Token, _}) ->
+                capi_ct_helper_tk:mock_handler(
+                    Token,
+                    <<"com.rbkmoney.capi">>,
+                    [
+                        {auth, [
+                            {method, <<"CustomerAccessToken">>},
+                            expiration,
+                            token,
+                            {scope, [[{party, ?STRING}, {customer, ?STRING}]]}
+                        ]}
+                    ],
+                    [api_key_meta]
+                )
+            end},
+            {customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_arbiter(
         ?assertContextMatches(
             #bctx_v1_ContextFragment{
@@ -635,6 +729,7 @@ customer_access_token_context_matches(Config) ->
 create_invoice_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"key">>)} end},
             {invoicing, fun('Create', {_, #payproc_InvoiceParams{id = <<"key">>}}) -> {ok, ?PAYPROC_INVOICE} end}
         ],
@@ -656,6 +751,8 @@ create_invoice_ok_test(Config) ->
 create_invoice_with_tpl_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            %% @NOTE This is weird (is there a bouncer mock missing?)
+            {token_keeper, fun capi_ct_helper_tk:not_found_handler/2},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"key">>)} end},
             {invoice_templating, fun('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL} end},
             {invoicing, fun('CreateWithTemplate', {_, #payproc_InvoiceWithTemplateParams{id = <<"key">>}}) ->
@@ -675,6 +772,7 @@ create_invoice_with_tpl_ok_test(Config) ->
 get_invoice_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}
         ],
         Config
@@ -690,6 +788,7 @@ get_invoice_events_ok_test(Config) ->
     end,
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) ->
                     {ok, ?PAYPROC_INVOICE};
@@ -722,6 +821,7 @@ get_invoice_events_ok_test(Config) ->
 get_invoice_payment_methods_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {party_management, fun('GetRevision', _) -> {ok, ?INTEGER} end},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
@@ -735,7 +835,13 @@ get_invoice_payment_methods_ok_test(Config) ->
 
 -spec create_invoice_access_token_ok_test(config()) -> _.
 create_invoice_access_token_ok_test(Config) ->
-    _ = mock_woody_client([{invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {invoicing, fun('Get', _) -> {ok, ?PAYPROC_INVOICE} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_invoice_op_ctx(<<"CreateInvoiceAccessToken">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_invoices:create_invoice_access_token(?config(context, Config), ?STRING).
 
@@ -743,6 +849,7 @@ create_invoice_access_token_ok_test(Config) ->
 rescind_invoice_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
                 ('Rescind', {_, ?STRING, ?STRING}) -> {ok, ok}
@@ -757,6 +864,7 @@ rescind_invoice_ok_test(Config) ->
 fulfill_invoice_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE};
                 ('Fulfill', {_, ?STRING, ?STRING}) -> {ok, ok}
@@ -769,7 +877,13 @@ fulfill_invoice_ok_test(Config) ->
 
 -spec create_invoice_template_ok_test(config()) -> _.
 create_invoice_template_ok_test(Config) ->
-    _ = mock_woody_client([{invoice_templating, fun('Create', _) -> {ok, ?INVOICE_TPL} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {invoice_templating, fun('Create', _) -> {ok, ?INVOICE_TPL} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"CreateInvoiceTemplate">>, ?STRING, ?STRING, Config),
     Req = #{
         <<"shopID">> => ?STRING,
@@ -787,7 +901,13 @@ create_invoice_template_ok_test(Config) ->
 
 -spec get_invoice_template_ok_test(config()) -> _.
 get_invoice_template_ok_test(Config) ->
-    _ = mock_woody_client([{invoice_templating, fun('Get', _) -> {ok, ?INVOICE_TPL} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {invoice_templating, fun('Get', _) -> {ok, ?INVOICE_TPL} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_invoice_tpl_op_ctx(<<"GetInvoiceTemplateByID">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_invoice_templates:get_template_by_id(?config(context, Config), ?STRING).
 
@@ -795,6 +915,7 @@ get_invoice_template_ok_test(Config) ->
 update_invoice_template_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoice_templating, fun
                 ('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL};
                 ('Update', {_, ?STRING, _}) -> {ok, ?INVOICE_TPL}
@@ -820,6 +941,7 @@ update_invoice_template_ok_test(Config) ->
 delete_invoice_template_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoice_templating, fun
                 ('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL};
                 ('Delete', {_, ?STRING}) -> {ok, ok}
@@ -834,6 +956,7 @@ delete_invoice_template_ok_test(Config) ->
 get_invoice_payment_methods_by_tpl_id_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {party_management, fun('GetRevision', _) -> {ok, ?INTEGER} end},
             {'invoice_templating', fun
                 ('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL};
@@ -853,7 +976,13 @@ get_invoice_payment_methods_by_tpl_id_ok_test(Config) ->
 
 -spec get_account_by_id_ok_test(config()) -> _.
 get_account_by_id_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('GetAccountState', _) -> {ok, ?ACCOUNT_STATE} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('GetAccountState', _) -> {ok, ?ACCOUNT_STATE} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"GetAccountByID">>, ?STRING, Config),
     {ok, _} = capi_client_accounts:get_account_by_id(?config(context, Config), ?INTEGER).
 
@@ -861,6 +990,7 @@ get_account_by_id_ok_test(Config) ->
 create_payment_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) ->
                     {ok, ?PAYPROC_INVOICE};
@@ -895,6 +1025,7 @@ create_payment_ok_test(Config) ->
 create_payment_expired_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE} end}
         ],
         Config
@@ -926,6 +1057,7 @@ create_payment_with_encrypt_token_ok_test(Config) ->
     BenderKey = <<"payment_key">>,
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) ->
                     {ok, ?PAYPROC_INVOICE};
@@ -974,7 +1106,13 @@ get_encrypted_token() ->
 
 -spec get_payments_ok_test(config()) -> _.
 get_payments_ok_test(Config) ->
-    _ = mock_woody_client([{invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_invoice_op_ctx(<<"GetPayments">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_payments:get_payments(?config(context, Config), ?STRING).
 
@@ -982,6 +1120,7 @@ get_payments_ok_test(Config) ->
 get_payment_by_id_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])} end}
         ],
         Config
@@ -1000,6 +1139,7 @@ get_payment_by_id_error_test(Config) ->
         ),
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun('Get', {_, ?STRING, _}) ->
                 {ok, ?PAYPROC_INVOICE([?PAYPROC_FAILED_PAYMENT({failure, Failure})])}
             end}
@@ -1017,6 +1157,7 @@ get_payment_by_id_error_test(Config) ->
 create_refund(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)} end},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])};
@@ -1034,6 +1175,7 @@ create_refund_idemp_ok_test(Config) ->
     BenderKey = <<"bender_key">>,
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(BenderKey)} end},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) ->
@@ -1058,6 +1200,7 @@ create_refund_idemp_ok_test(Config) ->
 create_partial_refund(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)} end},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) ->
@@ -1080,6 +1223,7 @@ create_partial_refund(Config) ->
 create_partial_refund_without_currency(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)} end},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) ->
@@ -1103,6 +1247,7 @@ create_partial_refund_without_currency(Config) ->
 get_refund_by_id(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])} end}
         ],
         Config
@@ -1124,6 +1269,7 @@ get_refund_by_id(Config) ->
 get_refunds(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])};
                 ('GetPayment', {_, ?STRING, ?STRING}) -> {ok, ?PAYPROC_PAYMENT}
@@ -1138,6 +1284,7 @@ get_refunds(Config) ->
 cancel_payment_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])};
                 ('CancelPayment', {_, ?STRING, ?STRING, _}) -> {ok, ok}
@@ -1152,6 +1299,7 @@ cancel_payment_ok_test(Config) ->
 capture_payment_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun
                 ('Get', {_, ?STRING, _}) -> {ok, ?PAYPROC_INVOICE([?PAYPROC_PAYMENT])};
                 ('CapturePaymentNew', {_, ?STRING, ?STRING, _}) -> {ok, ok}
@@ -1164,49 +1312,97 @@ capture_payment_ok_test(Config) ->
 
 -spec get_my_party_ok_test(config()) -> _.
 get_my_party_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> {ok, ?PARTY} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"GetMyParty">>, ?STRING, Config),
     {ok, _} = capi_client_parties:get_my_party(?config(context, Config)).
 
 -spec suspend_my_party_ok_test(config()) -> _.
 suspend_my_party_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Suspend', _) -> {ok, ok} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Suspend', _) -> {ok, ok} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"SuspendMyParty">>, ?STRING, Config),
     ok = capi_client_parties:suspend_my_party(?config(context, Config)).
 
 -spec activate_my_party_ok_test(config()) -> _.
 activate_my_party_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Activate', _) -> {ok, ok} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Activate', _) -> {ok, ok} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"ActivateMyParty">>, ?STRING, Config),
     ok = capi_client_parties:activate_my_party(?config(context, Config)).
 
 -spec get_shop_by_id_ok_test(config()) -> _.
 get_shop_by_id_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('GetShop', _) -> {ok, ?SHOP} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('GetShop', _) -> {ok, ?SHOP} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"GetShopByID">>, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_shops:get_shop_by_id(?config(context, Config), ?STRING).
 
 -spec get_shops_ok_test(config()) -> _.
 get_shops_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> {ok, ?PARTY} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"GetShops">>, ?STRING, Config),
     {ok, _} = capi_client_shops:get_shops(?config(context, Config)).
 
 -spec suspend_shop_ok_test(config()) -> _.
 suspend_shop_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('SuspendShop', _) -> {ok, ok} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('SuspendShop', _) -> {ok, ok} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"SuspendShop">>, ?STRING, ?STRING, Config),
     ok = capi_client_shops:suspend_shop(?config(context, Config), ?STRING).
 
 -spec activate_shop_ok_test(config()) -> _.
 activate_shop_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('ActivateShop', _) -> {ok, ok} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('ActivateShop', _) -> {ok, ok} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"ActivateShop">>, ?STRING, ?STRING, Config),
     ok = capi_client_shops:activate_shop(?config(context, Config), ?STRING).
 
 -spec get_claim_by_id_ok_test(config()) -> _.
 get_claim_by_id_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('GetClaim', _) -> {ok, ?CLAIM(?CLAIM_CHANGESET)} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('GetClaim', _) -> {ok, ?CLAIM(?CLAIM_CHANGESET)} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_claim_op_ctx(<<"GetClaimByID">>, ?STRING, ?INTEGER_BINARY, Config),
     {ok, _} = capi_client_claims:get_claim_by_id(?config(context, Config), ?INTEGER_BINARY).
 
@@ -1214,6 +1410,7 @@ get_claim_by_id_ok_test(Config) ->
 get_claims_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {party_management, fun('GetClaims', _) ->
                 {ok, [
                     ?CLAIM(?CLAIM_CHANGESET),
@@ -1229,13 +1426,25 @@ get_claims_ok_test(Config) ->
 
 -spec revoke_claim_ok_test(config()) -> _.
 revoke_claim_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('RevokeClaim', _) -> {ok, ok} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('RevokeClaim', _) -> {ok, ok} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_claim_op_ctx(<<"RevokeClaimByID">>, ?STRING, ?INTEGER_BINARY, Config),
     ok = capi_client_claims:revoke_claim_by_id(?config(context, Config), ?STRING, ?INTEGER_BINARY, ?INTEGER_BINARY).
 
 -spec create_claim_ok_test(config()) -> _.
 create_claim_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('CreateClaim', _) -> {ok, ?CLAIM(?CLAIM_CHANGESET)} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('CreateClaim', _) -> {ok, ?CLAIM(?CLAIM_CHANGESET)} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"CreateClaim">>, ?STRING, Config),
     Changeset = [
         #{
@@ -1322,7 +1531,13 @@ update_claim_by_id_test(_) ->
 
 -spec get_contract_by_id_ok_test(config()) -> _.
 get_contract_by_id_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> {ok, ?PARTY} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_arbiter(
         ?assertContextMatches(
             #bctx_v1_ContextFragment{
@@ -1336,31 +1551,61 @@ get_contract_by_id_ok_test(Config) ->
 
 -spec get_contracts_ok_test(config()) -> _.
 get_contracts_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('Get', _) -> {ok, ?PARTY} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('Get', _) -> {ok, ?PARTY} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"GetContracts">>, ?STRING, Config),
     {ok, [_First, _Second]} = capi_client_contracts:get_contracts(?config(context, Config)).
 
 -spec get_contract_adjustments_ok_test(config()) -> _.
 get_contract_adjustments_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_contract_op_ctx(<<"GetContractAdjustments">>, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_contracts:get_contract_adjustments(?config(context, Config), ?STRING).
 
 -spec get_contract_adjustment_by_id_ok_test(config()) -> _.
 get_contract_adjustment_by_id_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_contract_op_ctx(<<"GetContractAdjustmentByID">>, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_contracts:get_contract_adjustment_by_id(?config(context, Config), ?STRING, ?STRING).
 
 -spec get_payout_tools_ok_test(config()) -> _.
 get_payout_tools_ok_test(Config) ->
-    _ = mock_woody_client([{party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_contract_op_ctx(<<"GetPayoutTools">>, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_payouts:get_payout_tools(?config(context, Config), ?STRING).
 
 -spec get_payout_tool_by_id(config()) -> _.
 get_payout_tool_by_id(Config) ->
-    _ = mock_woody_client([{party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {party_management, fun('GetContract', _) -> {ok, ?CONTRACT} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_contract_op_ctx(<<"GetPayoutToolByID">>, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_payouts:get_payout_tool_by_id(?config(context, Config), ?STRING, ?BANKID_RU),
     {ok, _} = capi_client_payouts:get_payout_tool_by_id(?config(context, Config), ?STRING, ?BANKID_US).
@@ -1369,6 +1614,7 @@ get_payout_tool_by_id(Config) ->
 create_webhook_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {party_management, fun('GetShop', _) -> {ok, ?SHOP} end},
             {webhook_manager, fun('Create', _) -> {ok, ?WEBHOOK} end}
         ],
@@ -1387,13 +1633,25 @@ create_webhook_ok_test(Config) ->
 
 -spec get_webhooks(config()) -> _.
 get_webhooks(Config) ->
-    _ = mock_woody_client([{webhook_manager, fun('GetList', _) -> {ok, [?WEBHOOK]} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {webhook_manager, fun('GetList', _) -> {ok, [?WEBHOOK]} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_party_op_ctx(<<"GetWebhooks">>, ?STRING, Config),
     {ok, _} = capi_client_webhooks:get_webhooks(?config(context, Config)).
 
 -spec get_webhook_by_id(config()) -> _.
 get_webhook_by_id(Config) ->
-    _ = mock_woody_client([{webhook_manager, fun('Get', _) -> {ok, ?WEBHOOK} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {webhook_manager, fun('Get', _) -> {ok, ?WEBHOOK} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_webhook_op_ctx(<<"GetWebhookByID">>, ?INTEGER_BINARY, ?STRING, Config),
     {ok, _} = capi_client_webhooks:get_webhook_by_id(?config(context, Config), ?INTEGER_BINARY).
 
@@ -1401,6 +1659,7 @@ get_webhook_by_id(Config) ->
 delete_webhook_by_id(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {webhook_manager, fun
                 ('Get', _) -> {ok, ?WEBHOOK};
                 ('Delete', _) -> {ok, ok}
@@ -1413,7 +1672,13 @@ delete_webhook_by_id(Config) ->
 
 -spec get_locations_names_ok_test(config()) -> _.
 get_locations_names_ok_test(Config) ->
-    _ = mock_woody_client([{geo_ip_service, fun('GetLocationName', _) -> {ok, #{123 => ?STRING}} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {geo_ip_service, fun('GetLocationName', _) -> {ok, #{123 => ?STRING}} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_op_ctx(<<"GetLocationsNames">>, Config),
     Query = #{
         <<"geoIDs">> => <<"5,3,6,5,4">>,
@@ -1427,6 +1692,7 @@ search_invoices_ok_test(Config) ->
     QueryPaymentID = <<"testPaymentID">>,
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun('Get', {_, ID, _}) when ID == QueryInvoiceID -> {ok, ?PAYPROC_INVOICE} end},
             {merchant_stat, fun('GetInvoices', _) -> {ok, ?STAT_RESPONSE_INVOICES} end}
         ],
@@ -1476,6 +1742,7 @@ search_payments_ok_test(Config) ->
     QueryPaymentID = <<"testPaymentID">>,
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {invoicing, fun('Get', {_, ID, _}) when ID == QueryInvoiceID -> {ok, ?PAYPROC_INVOICE} end},
             {merchant_stat, fun('GetPayments', _) -> {ok, ?STAT_RESPONSE_PAYMENTS} end}
         ],
@@ -1531,6 +1798,7 @@ search_payouts_ok_test(Config) ->
     QueryPayoutID = <<"testPayoutID">>,
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {payout_management, fun('Get', {ID}) when ID == QueryPayoutID ->
                 {ok, ?PAYOUT(?PAYOUT_BANK_ACCOUNT_RUS, [?PAYOUT_SUMMARY_ITEM])}
             end},
@@ -1567,7 +1835,13 @@ search_payouts_ok_test(Config) ->
 
 -spec get_payment_conversion_stats_ok_test(_) -> _.
 get_payment_conversion_stats_ok_test(Config) ->
-    _ = mock_woody_client([{merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"GetPaymentConversionStats">>, ?STRING, ?STRING, Config),
     Query = [
         {limit, 2},
@@ -1581,7 +1855,13 @@ get_payment_conversion_stats_ok_test(Config) ->
 
 -spec get_payment_revenue_stats_ok_test(config()) -> _.
 get_payment_revenue_stats_ok_test(Config) ->
-    _ = mock_woody_client([{merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"GetPaymentRevenueStats">>, ?STRING, ?STRING, Config),
     Query = [
         {limit, 2},
@@ -1595,7 +1875,13 @@ get_payment_revenue_stats_ok_test(Config) ->
 
 -spec get_payment_geo_stats_ok_test(config()) -> _.
 get_payment_geo_stats_ok_test(Config) ->
-    _ = mock_woody_client([{merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"GetPaymentGeoStats">>, ?STRING, ?STRING, Config),
     Query = [
         {limit, 2},
@@ -1609,7 +1895,13 @@ get_payment_geo_stats_ok_test(Config) ->
 
 -spec get_payment_rate_stats_ok_test(config()) -> _.
 get_payment_rate_stats_ok_test(Config) ->
-    _ = mock_woody_client([{merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"GetPaymentRateStats">>, ?STRING, ?STRING, Config),
     Query = [
         {limit, 2},
@@ -1623,7 +1915,13 @@ get_payment_rate_stats_ok_test(Config) ->
 
 -spec get_payment_method_stats_ok_test(config()) -> _.
 get_payment_method_stats_ok_test(Config) ->
-    _ = mock_woody_client([{merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {merchant_stat, fun('GetStatistics', _) -> {ok, ?STAT_RESPONSE_RECORDS} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"GetPaymentMethodStats">>, ?STRING, ?STRING, Config),
     Query = [
         {limit, 2},
@@ -1638,7 +1936,13 @@ get_payment_method_stats_ok_test(Config) ->
 
 -spec get_reports_ok_test(config()) -> _.
 get_reports_ok_test(Config) ->
-    _ = mock_woody_client([{reporting, fun('GetReports', _) -> {ok, ?FOUND_REPORTS} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {reporting, fun('GetReports', _) -> {ok, ?FOUND_REPORTS} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"GetReports">>, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_reports:get_reports(?config(context, Config), ?STRING, ?TIMESTAMP, ?TIMESTAMP).
 
@@ -1646,6 +1950,7 @@ get_reports_ok_test(Config) ->
 download_report_file_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {reporting, fun
                 ('GetReport', _) -> {ok, ?REPORT};
                 ('GeneratePresignedUrl', _) -> {ok, ?STRING}
@@ -1675,6 +1980,7 @@ download_report_file_ok_test(Config) ->
 download_report_file_not_found_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {reporting, fun
                 ('GetReport', _) -> {ok, ?REPORT#reports_Report{status = pending}};
                 ('GeneratePresignedUrl', _) -> {ok, ?STRING}
@@ -1703,21 +2009,25 @@ download_report_file_not_found_test(Config) ->
 
 -spec get_categories_ok_test(config()) -> _.
 get_categories_ok_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     _ = mock_bouncer_assert_op_ctx(<<"GetCategories">>, Config),
     {ok, _} = capi_client_categories:get_categories(?config(context, Config)).
 
 -spec get_category_by_ref_ok_test(config()) -> _.
 get_category_by_ref_ok_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     _ = mock_bouncer_assert_op_ctx(<<"GetCategoryByRef">>, Config),
     {ok, _} = capi_client_categories:get_category_by_ref(?config(context, Config), ?INTEGER).
 
 -spec get_schedule_by_ref_ok_test(config()) -> _.
 get_schedule_by_ref_ok_test(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     _ = mock_bouncer_assert_op_ctx(<<"GetScheduleByRef">>, Config),
     {ok, _} = capi_client_payouts:get_schedule_by_ref(?config(context, Config), ?INTEGER).
 
 -spec get_payment_institutions(config()) -> _.
 get_payment_institutions(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     _ = mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutions">>, Config),
     {ok, [_Something]} = capi_client_payment_institutions:get_payment_institutions(?config(context, Config)),
     {ok, []} =
@@ -1727,6 +2037,7 @@ get_payment_institutions(Config) ->
 
 -spec get_payment_institution_by_ref(config()) -> _.
 get_payment_institution_by_ref(Config) ->
+    _ = mock_woody_client([{token_keeper, fun capi_ct_helper_tk:user_session_handler/2}], Config),
     _ = mock_bouncer_assert_op_ctx(<<"GetPaymentInstitutionByRef">>, Config),
     {ok, _} = capi_client_payment_institutions:get_payment_institution_by_ref(?config(context, Config), ?INTEGER).
 
@@ -1734,6 +2045,7 @@ get_payment_institution_by_ref(Config) ->
 get_payment_institution_payment_terms(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {party_management, fun('ComputePaymentInstitutionTerms', _) -> {ok, ?TERM_SET} end}
         ],
         Config
@@ -1746,6 +2058,7 @@ get_payment_institution_payment_terms(Config) ->
 get_payment_institution_payout_methods(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {party_management, fun('ComputePaymentInstitutionTerms', _) -> {ok, ?TERM_SET} end}
         ],
         Config
@@ -1761,6 +2074,7 @@ get_payment_institution_payout_methods(Config) ->
 get_payment_institution_payout_schedules(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {party_management, fun('ComputePaymentInstitutionTerms', _) -> {ok, ?TERM_SET} end}
         ],
         Config
@@ -1775,7 +2089,13 @@ get_payment_institution_payout_schedules(Config) ->
 
 -spec create_customer_ok_test(config()) -> _.
 create_customer_ok_test(Config) ->
-    _ = mock_woody_client([{customer_management, fun('Create', _) -> {ok, ?CUSTOMER} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {customer_management, fun('Create', _) -> {ok, ?CUSTOMER} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_shop_op_ctx(<<"CreateCustomer">>, ?STRING, ?STRING, Config),
     Req = #{
         <<"shopID">> => ?STRING,
@@ -1786,13 +2106,25 @@ create_customer_ok_test(Config) ->
 
 -spec get_customer_ok_test(config()) -> _.
 get_customer_ok_test(Config) ->
-    _ = mock_woody_client([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], Config),
-    _ = mock_bouncer_assert_customer_op_ctx(<<"GetCustomerByID">>, ?STRING, ?STRING, ?STRING, Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}
+        ],
+        Config
+    ),
+    _ = mock_bouncer_assert_customer_op_ctx(<<"GetCustomerById">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_customers:get_customer_by_id(?config(context, Config), ?STRING).
 
 -spec create_customer_access_token_ok_test(config()) -> _.
 create_customer_access_token_ok_test(Config) ->
-    _ = mock_woody_client([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_customer_op_ctx(<<"CreateCustomerAccessToken">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_customers:create_customer_access_token(?config(context, Config), ?STRING).
 
@@ -1800,6 +2132,7 @@ create_customer_access_token_ok_test(Config) ->
 create_binding_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {bender, fun('GenerateID', _) -> {ok, capi_ct_helper_bender:get_result(<<"bender_key">>)} end},
             {customer_management, fun
                 ('Get', {?STRING, _}) -> {ok, ?CUSTOMER};
@@ -1822,6 +2155,7 @@ create_binding_ok_test(Config) ->
 create_binding_expired_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {customer_management, fun('Get', {?STRING, _}) -> {ok, ?CUSTOMER} end}
         ],
         Config
@@ -1841,13 +2175,25 @@ create_binding_expired_test(Config) ->
 
 -spec get_bindings_ok_test(config()) -> _.
 get_bindings_ok_test(Config) ->
-    _ = mock_woody_client([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_assert_customer_op_ctx(<<"GetBindings">>, ?STRING, ?STRING, ?STRING, Config),
     {ok, _} = capi_client_customers:get_bindings(?config(context, Config), ?STRING).
 
 -spec get_binding_ok_test(config()) -> _.
 get_binding_ok_test(Config) ->
-    _ = mock_woody_client([{customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}], Config),
+    _ = mock_woody_client(
+        [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
+            {customer_management, fun('Get', _) -> {ok, ?CUSTOMER} end}
+        ],
+        Config
+    ),
     _ = mock_bouncer_arbiter(
         ?assertContextMatches(
             #bctx_v1_ContextFragment{
@@ -1865,6 +2211,7 @@ get_binding_ok_test(Config) ->
 get_customer_events_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {customer_management, fun
                 ('Get', {?STRING, _}) -> {ok, ?CUSTOMER};
                 ('GetEvents', _) -> {ok, []}
@@ -1879,6 +2226,7 @@ get_customer_events_ok_test(Config) ->
 delete_customer_ok_test(Config) ->
     _ = mock_woody_client(
         [
+            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
             {customer_management, fun
                 ('Get', {?STRING, _}) -> {ok, ?CUSTOMER};
                 ('Delete', _) -> {ok, ok}
@@ -1990,6 +2338,12 @@ start_capi(Keyset, Config) ->
         {lechiffre_opts, #{
             encryption_source => JwkPublSource,
             decryption_sources => [JwkPrivSource]
+        }},
+        {token_keeper_opts, #{
+            meta_namespaces => #{
+                user_session => ?META_NS_USER_SESSION,
+                api_key => ?META_NS_API_KEY
+            }
         }}
     ],
     capi_ct_helper:start_app(capi, CapiEnv).
@@ -2194,12 +2548,21 @@ combine_fragment_fields(V1, V2) when is_tuple(V1), is_tuple(V2) ->
 combine_fragment_fields(V1, V2) when is_list(V1), is_list(V2) ->
     ordsets:union(V1, V2).
 
-mock_woody_client(Services, SupOrConfig) ->
-    start_woody_client(mock_services(Services, SupOrConfig)).
+mock_woody_client(Services0, SupOrConfig) ->
+    mock_woody_client(Services0, SupOrConfig, #{}).
 
-mock_services(Services, Config) when is_list(Config) ->
-    mock_services(Services, ?config(test_sup, Config));
-mock_services(Services, SupPid) when is_pid(SupPid) ->
+mock_woody_client(Services0, SupOrConfig, CustomUrls) ->
+    mock_woody_client(Services0, SupOrConfig, CustomUrls, []).
+
+mock_woody_client(Services0, SupOrConfig, CustomUrls, CustomOpts) ->
+    start_woody_client(mock_services(Services0, SupOrConfig, CustomUrls), CustomOpts).
+
+mock_services(Services, ConfigOrSup) ->
+    mock_services(Services, ConfigOrSup, #{}).
+
+mock_services(Services, Config, CustomUrls) when is_list(Config) ->
+    mock_services(Services, ?config(test_sup, Config), CustomUrls);
+mock_services(Services, SupPid, CustomUrls) when is_pid(SupPid) ->
     {ok, IP} = inet:parse_address(?CAPI_IP),
     Names = lists:map(fun get_service_name/1, Services),
     ServerID = {dummy, Names},
@@ -2213,14 +2576,15 @@ mock_services(Services, SupPid) when is_pid(SupPid) ->
     ChildSpec = woody_server:child_spec(ServerID, Options),
     {ok, _Pid} = supervisor:start_child(SupPid, ChildSpec),
     {IP, Port} = woody_server:get_addr(ServerID, Options),
-    lists:foldl(
+    ServiceUrls = lists:foldl(
         fun(Service, Acc) ->
             ServiceName = get_service_name(Service),
             Acc#{ServiceName => make_url(ServiceName, Port)}
         end,
         #{},
         Services
-    ).
+    ),
+    maps:merge(CustomUrls, ServiceUrls).
 
 get_service_name({ServiceName, _Fun}) ->
     ServiceName;
@@ -2235,8 +2599,8 @@ mock_service_handler({ServiceName, WoodyService, Fun}) ->
 mock_service_handler(ServiceName, WoodyService, Fun) ->
     {make_path(ServiceName), {WoodyService, {capi_dummy_service, #{function => Fun}}}}.
 
-start_woody_client(ServiceURLs) ->
-    capi_ct_helper:start_app(capi_woody_client, [{service_urls, ServiceURLs}]).
+start_woody_client(ServiceURLs, CustomOpts) ->
+    capi_ct_helper:start_app(capi_woody_client, [{service_urls, ServiceURLs} | CustomOpts]).
 
 start_bouncer_client(ServiceURLs) ->
     ServiceClients = maps:map(fun(_, URL) -> #{url => URL} end, ServiceURLs),
