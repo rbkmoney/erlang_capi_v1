@@ -122,7 +122,7 @@
 
 -define(BANK_CARD, #domain_BankCard{
     token = ?STRING,
-    payment_system = visa,
+    payment_system_deprecated = visa,
     bin = <<"411111">>,
     last_digits = <<"1111">>
 }).
@@ -666,17 +666,17 @@
 
 -define(STAT_BANK_CARD, #merchstat_BankCard{
     token = ?STRING,
-    payment_system = visa,
+    payment_system_deprecated = visa,
     bin = <<"411111">>,
     masked_pan = <<"1111">>
 }).
 
 -define(STAT_BANK_CARD_WITH_TP, #merchstat_BankCard{
     token = ?STRING,
-    payment_system = visa,
+    payment_system_deprecated = visa,
     bin = <<"411111">>,
     masked_pan = <<"1111">>,
-    token_provider = applepay
+    token_provider_deprecated = applepay
 }).
 
 -define(STAT_PAYOUT_SUMMARY_ITEM, #merchstat_PayoutSummaryItem{
@@ -871,43 +871,43 @@
                 #domain_PaymentMethodRef{
                     id =
                         {tokenized_bank_card_deprecated, #domain_TokenizedBankCard{
-                            payment_system = mastercard,
-                            token_provider = applepay
+                            payment_system_deprecated = mastercard,
+                            token_provider_deprecated = applepay
                         }}
                 },
                 #domain_PaymentMethodRef{
                     id =
                         {tokenized_bank_card_deprecated, #domain_TokenizedBankCard{
-                            payment_system = visa,
-                            token_provider = applepay
+                            payment_system_deprecated = visa,
+                            token_provider_deprecated = applepay
                         }}
                 },
                 #domain_PaymentMethodRef{
                     id =
                         {bank_card, #domain_BankCardPaymentMethod{
-                            payment_system = mastercard,
-                            token_provider = applepay,
+                            payment_system_deprecated = mastercard,
+                            token_provider_deprecated = applepay,
                             tokenization_method = dpan
                         }}
                 },
                 #domain_PaymentMethodRef{
                     id =
                         {bank_card, #domain_BankCardPaymentMethod{
-                            payment_system = visa,
-                            token_provider = applepay,
+                            payment_system_deprecated = visa,
+                            token_provider_deprecated = applepay,
                             tokenization_method = dpan
                         }}
                 },
                 #domain_PaymentMethodRef{
                     id =
                         {bank_card, #domain_BankCardPaymentMethod{
-                            payment_system = mastercard
+                            payment_system_deprecated = mastercard
                         }}
                 },
                 #domain_PaymentMethodRef{
                     id =
                         {bank_card, #domain_BankCardPaymentMethod{
-                            payment_system = visa
+                            payment_system_deprecated = visa
                         }}
                 }
             ])}

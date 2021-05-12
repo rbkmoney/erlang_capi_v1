@@ -1097,7 +1097,7 @@ get_encrypted_token() ->
     PaymentTool =
         {bank_card, #domain_BankCard{
             token = <<"4111111111111111">>,
-            payment_system = mastercard,
+            payment_system_deprecated = mastercard,
             bin = <<>>,
             last_digits = <<"1111">>,
             cardholder_name = <<"Degus Degusovich">>
@@ -2253,7 +2253,7 @@ check_support_decrypt_v1_test(_Config) ->
                 cc = <<"7">>,
                 ctn = <<"9210001122">>
             },
-            operator = megafone
+            operator_deprecated = megafone
         }},
         PaymentTool
     ),
@@ -2275,7 +2275,7 @@ check_support_decrypt_v2_test(_Config) ->
                 cc = <<"7">>,
                 ctn = <<"9210001122">>
             },
-            operator = megafone
+            operator_deprecated = megafone
         }},
         PaymentTool
     ),

@@ -2032,10 +2032,10 @@ encode_payer_params(#{
 
 decode_bank_card(#domain_BankCard{
     'token' = Token,
-    'payment_system' = PaymentSystem,
+    'payment_system_deprecated' = PaymentSystem,
     'bin' = Bin,
     'last_digits' = LastDigits,
-    'token_provider' = TokenProvider,
+    'token_provider_deprecated' = TokenProvider,
     'issuer_country' = IssuerCountry,
     'bank_name' = BankName,
     'metadata' = Metadata
@@ -2063,7 +2063,7 @@ decode_bank_card_metadata(Meta) ->
     maps:map(fun(_, Data) -> capi_msgp_marshalling:unmarshal(Data) end, Meta).
 
 decode_payment_terminal(#domain_PaymentTerminal{
-    terminal_type = Type
+    terminal_type_deprecated = Type
 }) ->
     capi_utils:map_to_base64url(#{
         <<"type">> => <<"payment_terminal">>,
@@ -2071,7 +2071,7 @@ decode_payment_terminal(#domain_PaymentTerminal{
     }).
 
 decode_digital_wallet(#domain_DigitalWallet{
-    provider = Provider,
+    provider_deprecated = Provider,
     id = ID
 }) ->
     capi_utils:map_to_base64url(#{
@@ -2545,10 +2545,10 @@ encode_bank_card(
 ) ->
     {bank_card, #domain_BankCard{
         'token' = Token,
-        'payment_system' = encode_payment_system(PaymentSystem),
+        'payment_system_deprecated' = encode_payment_system(PaymentSystem),
         'bin' = maps:get(<<"bin">>, BankCard, <<>>),
         'last_digits' = LastDigits,
-        'token_provider' = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
+        'token_provider_deprecated' = encode_token_provider(genlib_map:get(<<"token_provider">>, BankCard)),
         'issuer_country' = encode_residence(genlib_map:get(<<"issuer_country">>, BankCard)),
         'bank_name' = genlib_map:get(<<"bank_name">>, BankCard),
         'metadata' = encode_bank_card_metadata(genlib_map:get(<<"metadata">>, BankCard)),
@@ -2565,12 +2565,12 @@ encode_bank_card_metadata(Meta) ->
 
 encode_payment_terminal(#{<<"terminal_type">> := Type}) ->
     {payment_terminal, #domain_PaymentTerminal{
-        terminal_type = binary_to_existing_atom(Type, utf8)
+        terminal_type_deprecated = binary_to_existing_atom(Type, utf8)
     }}.
 
 encode_digital_wallet(#{<<"provider">> := Provider, <<"id">> := ID}) ->
     {digital_wallet, #domain_DigitalWallet{
-        provider = binary_to_existing_atom(Provider, utf8),
+        provider_deprecated = binary_to_existing_atom(Provider, utf8),
         id = ID
     }}.
 
@@ -2906,8 +2906,8 @@ decode_bank_card_details(BankCard, V) ->
         <<"lastDigits">> => LastDigits,
         <<"bin">> => Bin,
         <<"cardNumberMask">> => decode_masked_pan(Bin, LastDigits),
-        <<"paymentSystem">> => genlib:to_binary(BankCard#domain_BankCard.payment_system),
-        <<"tokenProvider">> => decode_token_provider(BankCard#domain_BankCard.token_provider)
+        <<"paymentSystem">> => genlib:to_binary(BankCard#domain_BankCard.payment_system_deprecated),
+        <<"tokenProvider">> => decode_token_provider(BankCard#domain_BankCard.token_provider_deprecated)
         % TODO: Uncomment or delete this when we negotiate deploying non-breaking changes
         % <<"tokenizationMethod">> => genlib:to_binary(BankCard#domain_BankCard.tokenization_method)
     }).
@@ -2924,7 +2924,7 @@ decode_token_provider(undefined) ->
 
 decode_payment_terminal_details(
     #domain_PaymentTerminal{
-        terminal_type = Type
+        terminal_type_deprecated = Type
     },
     V
 ) ->
@@ -2934,7 +2934,7 @@ decode_payment_terminal_details(
 
 decode_digital_wallet_details(
     #domain_DigitalWallet{
-        provider = qiwi,
+        provider_deprecated = qiwi,
         id = ID
     },
     V
@@ -3088,25 +3088,25 @@ decode_flow(
 merchstat_to_domain(
     {bank_card, #merchstat_BankCard{
         'token' = Token,
-        'payment_system' = PaymentSystem,
+        'payment_system_deprecated' = PaymentSystem,
         'bin' = Bin,
         'masked_pan' = LastDigits,
-        'token_provider' = TokenProvider
+        'token_provider_deprecated' = TokenProvider
     }}
 ) ->
     {bank_card, #domain_BankCard{
         'token' = Token,
-        'payment_system' = PaymentSystem,
+        'payment_system_deprecated' = PaymentSystem,
         'bin' = Bin,
         'last_digits' = LastDigits,
-        'token_provider' = TokenProvider
+        'token_provider_deprecated' = TokenProvider
     }};
 merchstat_to_domain(
     {payment_terminal, #merchstat_PaymentTerminal{
         terminal_type = Type
     }}
 ) ->
-    {payment_terminal, #domain_PaymentTerminal{terminal_type = Type}};
+    {payment_terminal, #domain_PaymentTerminal{terminal_type_deprecated = Type}};
 merchstat_to_domain(
     {digital_wallet, #merchstat_DigitalWallet{
         provider = Provider,
@@ -3114,7 +3114,7 @@ merchstat_to_domain(
     }}
 ) ->
     {digital_wallet, #domain_DigitalWallet{
-        provider = Provider,
+        provider_deprecated = Provider,
         id = ID
     }};
 merchstat_to_domain({bank_card, #merchstat_PayoutCard{card = BankCard}}) ->
@@ -4962,24 +4962,29 @@ decode_payment_method(tokenized_bank_card_deprecated, TokenizedBankCards) ->
     decode_tokenized_bank_cards(TokenizedBankCards);
 decode_payment_method(bank_card, Cards) ->
     {Regular, Tokenized} =
-        lists:partition(fun(#domain_BankCardPaymentMethod{token_provider = TP}) -> TP =:= undefined end, Cards),
+        lists:partition(
+            fun(#domain_BankCardPaymentMethod{token_provider_deprecated = TP}) -> TP =:= undefined end,
+            Cards
+        ),
     [
         #{<<"method">> => <<"BankCard">>, <<"paymentSystems">> => lists:map(fun decode_bank_card_pm/1, Regular)}
         | decode_tokenized_bank_cards(Tokenized)
     ].
 
-decode_bank_card_pm(#domain_BankCardPaymentMethod{payment_system = PS}) -> genlib:to_binary(PS).
+decode_bank_card_pm(#domain_BankCardPaymentMethod{payment_system_deprecated = PS}) -> genlib:to_binary(PS).
 
 decode_tokenized_bank_cards([#domain_BankCardPaymentMethod{} | _] = TokenizedBankCards) ->
     PropTokenizedBankCards = [
         {TP, PS}
-        || #domain_BankCardPaymentMethod{payment_system = PS, token_provider = TP} <- TokenizedBankCards
+        || #domain_BankCardPaymentMethod{payment_system_deprecated = PS, token_provider_deprecated = TP} <-
+               TokenizedBankCards
     ],
     do_decode_tokenized_bank_cards(PropTokenizedBankCards);
 decode_tokenized_bank_cards([#domain_TokenizedBankCard{} | _] = TokenizedBankCards) ->
     PropTokenizedBankCards = [
         {TP, PS}
-        || #domain_TokenizedBankCard{payment_system = PS, token_provider = TP} <- TokenizedBankCards
+        || #domain_TokenizedBankCard{payment_system_deprecated = PS, token_provider_deprecated = TP} <-
+               TokenizedBankCards
     ],
     do_decode_tokenized_bank_cards(PropTokenizedBankCards);
 decode_tokenized_bank_cards([]) ->
