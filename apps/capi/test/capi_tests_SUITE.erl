@@ -394,6 +394,7 @@ init_per_group(operations_by_base_api_token, Config) ->
         {[invoices, payments], read},
         {[customers], write}
     ],
+    capi_dummy_service_v2:start(19999),
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     Context = get_context(Token),
     [{context, Context}, {group_apps, Apps1} | Config];
@@ -877,14 +878,6 @@ fulfill_invoice_ok_test(Config) ->
 
 -spec create_invoice_template_ok_test(config()) -> _.
 create_invoice_template_ok_test(Config) ->
-    _ = mock_woody_client(
-        [
-            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
-            {invoice_templating, fun('Create', _) -> {ok, ?INVOICE_TPL} end}
-        ],
-        Config
-    ),
-    _ = mock_bouncer_assert_shop_op_ctx(<<"CreateInvoiceTemplate">>, ?STRING, ?STRING, Config),
     Req = #{
         <<"shopID">> => ?STRING,
         <<"lifetime">> => get_lifetime(),
@@ -2327,6 +2320,9 @@ start_capi(Keyset, Config) ->
         {ip, ?CAPI_IP},
         {port, ?CAPI_PORT},
         {deployment, ?TEST_CAPI_DEPLOYMENT},
+        {payment_api_v2, #{
+            url => <<"http://localhost:19999">>
+        }},
         {graceful_shutdown_timeout, 0},
         {authorizers, #{
             jwt => #{
