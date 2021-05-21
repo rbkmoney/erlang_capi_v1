@@ -89,6 +89,8 @@ map_error(validation_error, Error) ->
     ReqCtx :: swag_server:request_context(),
     HandlerOpts :: swag_server:handler_opts(_)
 ) -> {ok | error, swag_server:response()}.
+handle_request('CreateInvoiceTemplate' = OperationID, Req, ReqCtx0, HandlerOpts) ->
+    capi_redirect_request:process_request(OperationID, Req, ReqCtx0, HandlerOpts);
 handle_request(OperationID, Req, ReqCtx0, _HandlerOpts) ->
     _ = logger:info("Processing request ~p", [OperationID]),
     try

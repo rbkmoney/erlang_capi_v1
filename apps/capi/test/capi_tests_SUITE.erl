@@ -394,6 +394,7 @@ init_per_group(operations_by_base_api_token, Config) ->
         {[invoices, payments], read},
         {[customers], write}
     ],
+    capi_dummy_service_v2:start(?CAPI_V2_PORT),
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     Context = get_context(Token),
     [{context, Context}, {group_apps, Apps1} | Config];
@@ -877,14 +878,6 @@ fulfill_invoice_ok_test(Config) ->
 
 -spec create_invoice_template_ok_test(config()) -> _.
 create_invoice_template_ok_test(Config) ->
-    _ = mock_woody_client(
-        [
-            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
-            {invoice_templating, fun('Create', _) -> {ok, ?INVOICE_TPL} end}
-        ],
-        Config
-    ),
-    _ = mock_bouncer_assert_shop_op_ctx(<<"CreateInvoiceTemplate">>, ?STRING, ?STRING, Config),
     Req = #{
         <<"shopID">> => ?STRING,
         <<"lifetime">> => get_lifetime(),
@@ -2323,10 +2316,14 @@ issue_dummy_token(ACL, Config) ->
 start_capi(Keyset, Config) ->
     JwkPublSource = {json, {file, get_keysource("keys/local/jwk.publ.json", Config)}},
     JwkPrivSource = {json, {file, get_keysource("keys/local/jwk.priv.json", Config)}},
+    APIV2_PORT = integer_to_binary(?CAPI_V2_PORT),
     CapiEnv = [
         {ip, ?CAPI_IP},
         {port, ?CAPI_PORT},
         {deployment, ?TEST_CAPI_DEPLOYMENT},
+        {payment_api_v2, #{
+            url => <<"http://localhost:", APIV2_PORT/binary>>
+        }},
         {graceful_shutdown_timeout, 0},
         {authorizers, #{
             jwt => #{

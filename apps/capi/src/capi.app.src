@@ -27,7 +27,8 @@
         prometheus,
         prometheus_cowboy,
         bouncer_client,
-        token_keeper_proto
+        token_keeper_proto,
+        hackney
     ]},
     {env, []}
 ]}.
