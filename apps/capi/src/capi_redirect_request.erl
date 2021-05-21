@@ -10,7 +10,7 @@
 ) -> {ok | error, swag_server:response()}.
 process_request('CreateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
     Params = encode_params(create_request_params(Req)),
-    Path = <<"/v2/processing/invoice-template">>,
+    Path = <<"/v2/processing/invoice-templates">>,
     Url = get_url_api(Path),
     case do_request(Url, Params, ReqCtx0) of
         {ok, BodyBin} ->
