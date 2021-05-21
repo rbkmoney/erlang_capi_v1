@@ -394,7 +394,7 @@ init_per_group(operations_by_base_api_token, Config) ->
         {[invoices, payments], read},
         {[customers], write}
     ],
-    capi_dummy_service_v2:start(19999),
+    capi_dummy_service_v2:start(?CAPI_V2_PORT),
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     Context = get_context(Token),
     [{context, Context}, {group_apps, Apps1} | Config];
@@ -2316,12 +2316,13 @@ issue_dummy_token(ACL, Config) ->
 start_capi(Keyset, Config) ->
     JwkPublSource = {json, {file, get_keysource("keys/local/jwk.publ.json", Config)}},
     JwkPrivSource = {json, {file, get_keysource("keys/local/jwk.priv.json", Config)}},
+    APIV2_PORT = integer_to_binary(?CAPI_V2_PORT),
     CapiEnv = [
         {ip, ?CAPI_IP},
         {port, ?CAPI_PORT},
         {deployment, ?TEST_CAPI_DEPLOYMENT},
         {payment_api_v2, #{
-            url => <<"http://localhost:19999">>
+            url => <<"http://localhost:", APIV2_PORT/binary>>
         }},
         {graceful_shutdown_timeout, 0},
         {authorizers, #{

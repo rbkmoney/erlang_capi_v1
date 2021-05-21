@@ -8,8 +8,7 @@
     ReqCtx :: swag_server:request_context(),
     HandlerOpts :: swag_server:handler_opts(_)
 ) -> {ok | error, swag_server:response()}.
-process_request('CreateInvoiceTemplate' = OperationID, Req, ReqCtx0, _HandlerOpts) ->
-    _ = logger:info("Redirect request on capi-v2 ~p", [OperationID]),
+process_request('CreateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
     Params = encode_params(create_request_params(Req)),
     Path = <<"/v2/processing/invoice-template">>,
     Url = get_url_api(Path),
