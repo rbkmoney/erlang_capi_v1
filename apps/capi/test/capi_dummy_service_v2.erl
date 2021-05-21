@@ -15,7 +15,7 @@ test() -> ok.
 
 start(Port) ->
     Dispatch = cowboy_router:compile([
-        {'_', [{"/v2/processing/invoice-template", ?MODULE, []}]}
+        {'_', [{"/v2/processing/invoice-templates", ?MODULE, []}]}
     ]),
     {ok, _} = cowboy:start_clear(
         my_http_listener,
