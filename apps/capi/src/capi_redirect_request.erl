@@ -1,5 +1,6 @@
 -module(capi_redirect_request).
 
+-define(PATH, <<"/v2/processing/invoice-templates">>).
 -export([process_request/4]).
 
 -spec process_request(
@@ -9,13 +10,16 @@
     HandlerOpts :: swag_server:handler_opts(_)
 ) -> {ok | error, swag_server:response()}.
 process_request('CreateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
-    Params = encode_params(create_request_params(Req)),
-    Path = <<"/v2/processing/invoice-templates">>,
+    Params = encode_params(#{<<"InvoiceTemplateCreateParams">> => create_request_params(Req)}),
+    Path = ?PATH,
     Url = get_url_api(Path),
-    case do_request(Url, Params, ReqCtx0) of
-        {ok, BodyBin} ->
-            Body = jsx:decode(BodyBin),
-            Response = genlib_map:compact(create_response(Body)),
+    case do_request(post, Url, Params, ReqCtx0) of
+        {ok, 201, BodyBin} ->
+            Json = jsx:decode(BodyBin),
+            #{
+                <<"invoiceTemplate">> := InvoiceTemplate
+            } = Json,
+            Response = genlib_map:compact(Json#{<<"invoiceTemplate">> => create_response(InvoiceTemplate)}),
             {ok, {201, #{}, Response}};
         {error, {bad_params, Body}} ->
             Response = jsx:decode(Body),
@@ -24,22 +28,112 @@ process_request('CreateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
             {error, {401, #{}, #{<<"message">> => genlib:to_binary(<<"Unauthorized operation">>)}}};
         {error, Error} ->
             throw(Error)
+    end;
+process_request('GetInvoiceTemplateByID', Req, ReqCtx0, _HandlerOpts) ->
+    TemplateID = maps:get(invoiceTemplateID, Req),
+    Path = <<?PATH/binary, "/", TemplateID/binary>>,
+    Url = get_url_api(Path),
+    case do_request(get, Url, <<>>, ReqCtx0) of
+        {ok, 200, BodyBin} ->
+            Body = jsx:decode(BodyBin),
+            Response = genlib_map:compact(create_response(Body)),
+            {ok, {200, #{}, Response}};
+        {error, unauthorized_operation} ->
+            {error, {401, #{}, #{<<"message">> => genlib:to_binary(<<"Unauthorized operation">>)}}};
+        {error, {not_found, Response}} ->
+            {error, {404, #{}, Response}};
+        {error, Error} ->
+            throw(Error)
+    end;
+process_request('UpdateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
+    TemplateID = maps:get(invoiceTemplateID, Req),
+    Path = <<?PATH/binary, "/", TemplateID/binary>>,
+    Url = get_url_api(Path),
+    Params = encode_params(#{<<"InvoiceTemplateUpdateParams">> => update_request_params(Req)}),
+    case do_request(put, Url, Params, ReqCtx0) of
+        {ok, 200, BodyBin} ->
+            Body = jsx:decode(BodyBin),
+            Response = genlib_map:compact(create_response(Body)),
+            {ok, {200, #{}, Response}};
+        {error, unauthorized_operation} ->
+            {error, {401, #{}, #{<<"message">> => genlib:to_binary(<<"Unauthorized operation">>)}}};
+        {error, {not_found, Response}} ->
+            {error, {404, #{}, Response}};
+        {error, Error} ->
+            throw(Error)
+    end;
+process_request('DeleteInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
+    TemplateID = maps:get(invoiceTemplateID, Req),
+    Path = <<?PATH/binary, "/", TemplateID/binary>>,
+    Url = get_url_api(Path),
+    case do_request(delete, Url, <<>>, ReqCtx0) of
+        {ok, 204, _} ->
+            {ok, {204, #{}, undefined}};
+        {error, {bad_params, Body}} ->
+            Response = jsx:decode(Body),
+            {ok, {400, #{}, Response}};
+        {error, unauthorized_operation} ->
+            {error, {401, #{}, #{<<"message">> => genlib:to_binary(<<"Unauthorized operation">>)}}};
+        {error, {not_found, Response}} ->
+            {error, {404, #{}, Response}};
+        {error, Error} ->
+            throw(Error)
+    end;
+process_request('CreateInvoiceWithTemplate', Req, ReqCtx0, _HandlerOpts) ->
+    TemplateID = maps:get(invoiceTemplateID, Req),
+    Params = encode_params(#{<<"InvoiceParamsWithTemplate">> => create_invoice_request_params(Req)}),
+    Path = <<?PATH/binary, "/", TemplateID/binary, "/invoices">>,
+    Url = get_url_api(Path),
+    case do_request(post, Url, Params, ReqCtx0) of
+        {ok, 201, Response} ->
+            {ok, {201, #{}, jsx:decode(Response)}};
+        {error, {bad_params, Body}} ->
+            Response = jsx:decode(Body),
+            {ok, {400, #{}, Response}};
+        {error, unauthorized_operation} ->
+            {error, {401, #{}, #{<<"message">> => genlib:to_binary(<<"Unauthorized operation">>)}}};
+        {error, {not_found, Response}} ->
+            {error, {404, #{}, Response}};
+        {error, Error} ->
+            throw(Error)
+    end;
+process_request('GetInvoicePaymentMethodsByTemplateID', Req, ReqCtx0, _) ->
+    TemplateID = maps:get(invoiceTemplateID, Req),
+    Path = <<?PATH/binary, "/", TemplateID/binary, "/payment-methods">>,
+    Url = get_url_api(Path),
+    case do_request(get, Url, <<>>, ReqCtx0) of
+        {ok, 200, Response} ->
+            {ok, {200, #{}, jsx:decode(Response)}};
+        {error, unauthorized_operation} ->
+            {error, {401, #{}, #{<<"message">> => genlib:to_binary(<<"Unauthorized operation">>)}}};
+        {error, {not_found, Response}} ->
+            {error, {404, #{}, Response}};
+        {error, Error} ->
+            throw(Error)
     end.
 
-do_request(Url, Params, ReqCtx0) ->
-    Method = post,
+do_request(Method, Url, Params, ReqCtx0) ->
     Headers = get_request_headers(ReqCtx0),
     Options = get_request_options(),
     handle_result(hackney:request(Method, Url, Headers, Params, Options)).
 
+handle_result({ok, 200, _Headers, Ref}) ->
+    {ok, Body} = get_body(hackney:body(Ref)),
+    {ok, 200, Body};
 handle_result({ok, 201, _Headers, Ref}) ->
     {ok, Body} = get_body(hackney:body(Ref)),
-    {ok, Body};
+    {ok, 201, Body};
+handle_result({ok, 204, _Headers, _Ref}) ->
+    % {ok, Body} = get_body(hackney:body(Ref)),
+    {ok, 204, <<>>};
 handle_result({ok, 400, _, Ref}) ->
     {ok, Body} = get_body(hackney:body(Ref)),
     {error, {bad_params, Body}};
 handle_result({ok, 401, _, _}) ->
     {error, unauthorized_operation};
+handle_result({ok, 404, _, Ref}) ->
+    {ok, Body} = get_body(hackney:body(Ref)),
+    {error, {not_found, Body}};
 handle_result({ok, Code, _Headers, Ref}) ->
     _ = hackney:skip_body(Ref),
     {error, {http_code_unexpected, Code}};
@@ -105,22 +199,40 @@ create_request_params(#{'InvoiceTemplateCreateParams' := Params} = _Req) ->
         <<"metadata">> => maps:get(<<"metadata">>, Params, undefined)
     }).
 
-create_response(Json0) ->
-    #{
-        <<"invoiceTemplate">> := InvoiceTemplate0
-    } = Json0,
+update_request_params(#{'InvoiceTemplateUpdateParams' := Params}) ->
+    Details =
+        case maps:get(<<"cost">>, Params, undefined) of
+            undefined ->
+                undefined;
+            _Cost ->
+                #{
+                    <<"templateType">> => <<"InvoiceTemplateSingleLine">>,
+                    <<"product">> => maps:get(<<"product">>, Params),
+                    <<"price">> => convert_cost_to_price(maps:get(<<"cost">>, Params))
+                }
+        end,
+    genlib_map:compact(#{
+        <<"shopID">> => maps:get(<<"shopID">>, Params, undefined),
+        <<"description">> => maps:get(<<"description">>, Params, undefined),
+        <<"lifetime">> => maps:get(<<"lifetime">>, Params, undefined),
+        <<"details">> => Details,
+        <<"metadata">> => maps:get(<<"metadata">>, Params, undefined)
+    }).
+
+create_invoice_request_params(#{'InvoiceParamsWithTemplate' := Params}) ->
+    Params.
+
+create_response(InvoiceTemplate0) ->
     #{<<"templateType">> := <<"InvoiceTemplateSingleLine">>} = Details = maps:get(<<"details">>, InvoiceTemplate0),
     Product = maps:get(<<"product">>, Details),
     Cost = convert_price_to_cost(maps:get(<<"price">>, Details)),
     InvoiceTemplate1 = maps:remove(<<"details">>, InvoiceTemplate0),
     InvoiceTemplate2 = maps:remove(<<"taxMode">>, InvoiceTemplate1),
-    InvoiceTempalte = InvoiceTemplate2#{
+    InvoiceTemplate = InvoiceTemplate2#{
         <<"product">> => Product,
         <<"cost">> => Cost
     },
-    Json0#{
-        <<"invoiceTemplate">> => InvoiceTempalte
-    }.
+    InvoiceTemplate.
 
 convert_cost_to_price(#{<<"invoiceTemplateCostType">> := <<"InvoiceTemplateCostRange">>} = CostParams) ->
     PriceParams = maps:remove(<<"invoiceTemplateCostType">>, CostParams),
