@@ -115,6 +115,7 @@ process_request('GetInvoicePaymentMethodsByTemplateID', Req, ReqCtx0, _) ->
 do_request(Method, Url, Params, ReqCtx0) ->
     Headers = get_request_headers(ReqCtx0),
     Options = get_request_options(),
+    logger:info("Redirect request to ~p, params ~p", [Url, Params]),
     handle_result(hackney:request(Method, Url, Headers, Params, Options)).
 
 handle_result({ok, 200, _Headers, Ref}) ->
