@@ -1,6 +1,6 @@
 -module(capi_redirect_request).
 
--define(PATH, <<"/v2/processing/invoice-templates">>).
+-define(INVOICE_TEMPLATE_PATH, <<"/v2/processing/invoice-templates">>).
 -export([process_request/4]).
 
 -spec process_request(
