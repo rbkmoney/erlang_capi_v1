@@ -82,7 +82,7 @@ process_request('DeleteInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
 process_request('CreateInvoiceWithTemplate', Req, ReqCtx0, _HandlerOpts) ->
     TemplateID = maps:get(invoiceTemplateID, Req),
     Params = encode_params(#{<<"InvoiceParamsWithTemplate">> => create_invoice_request_params(Req)}),
-    Path = <<?PATH/binary, "/", TemplateID/binary, "/invoices">>,
+    Path = <<?INVOICE_TEMPLATE_PATH/binary, "/", TemplateID/binary, "/invoices">>,
     Url = get_url_api(Path),
     case do_request(post, Url, Params, ReqCtx0) of
         {ok, 201, Response} ->
