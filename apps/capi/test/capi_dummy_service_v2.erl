@@ -101,8 +101,7 @@ create_invoice_tmpl(Req0, State) ->
 
 create_invoice(Req0, State) ->
     {ok, [{BodyBin, _}], Req1} = read_body_params(Req0),
-    Body = jsx:decode(BodyBin),
-    #{<<"InvoiceParamsWithTemplate">> := Params} = Body,
+    Params = jsx:decode(BodyBin),
     Response = jsx:encode(#{
         <<"invoice">> => Params#{
             <<"id">> => <<"1">>,
@@ -124,7 +123,7 @@ create_invoice(Req0, State) ->
     ),
     {ok, Req2, State}.
 
-get_response(#{<<"InvoiceTemplateCreateParams">> := Body}) ->
+get_response(Body) ->
     jsx:encode(#{
         <<"invoiceTemplate">> => Body#{
             <<"id">> => <<"1">>
