@@ -89,7 +89,14 @@ map_error(validation_error, Error) ->
     ReqCtx :: swag_server:request_context(),
     HandlerOpts :: swag_server:handler_opts(_)
 ) -> {ok | error, swag_server:response()}.
-handle_request('CreateInvoiceTemplate' = OperationID, Req, ReqCtx0, HandlerOpts) ->
+handle_request(OperationID, Req, ReqCtx0, HandlerOpts) when
+    OperationID =:= 'CreateInvoiceTemplate' orelse
+        OperationID =:= 'GetInvoiceTemplateByID' orelse
+        OperationID =:= 'UpdateInvoiceTemplate' orelse
+        OperationID =:= 'DeleteInvoiceTemplate' orelse
+        OperationID =:= 'CreateInvoiceWithTemplate' orelse
+        OperationID =:= 'getInvoicePaymentMethodsByTemplateID'
+->
     capi_redirect_request:process_request(OperationID, Req, ReqCtx0, HandlerOpts);
 handle_request(OperationID, Req, ReqCtx0, _HandlerOpts) ->
     _ = logger:info("Processing request ~p", [OperationID]),

@@ -327,6 +327,8 @@ groups() ->
 init_per_suite(Config) ->
     SupPid = start_mocked_service_sup(),
     Apps = capi_ct_helper:start_app(woody) ++ start_dmt_client(SupPid) ++ mock_bouncer_client(SupPid),
+    capi_dummy_service_v2:start(?CAPI_V2_PORT),
+
     [{suite_apps, Apps}, {suite_test_sup, SupPid} | Config].
 
 start_dmt_client(SupPid) ->
@@ -394,7 +396,6 @@ init_per_group(operations_by_base_api_token, Config) ->
         {[invoices, payments], read},
         {[customers], write}
     ],
-    capi_dummy_service_v2:start(?CAPI_V2_PORT),
     {ok, Token} = issue_token(capi, ?STRING, ACL, unlimited),
     Context = get_context(Token),
     [{context, Context}, {group_apps, Apps1} | Config];
@@ -932,17 +933,6 @@ update_invoice_template_ok_test(Config) ->
 
 -spec delete_invoice_template_ok_test(config()) -> _.
 delete_invoice_template_ok_test(Config) ->
-    _ = mock_woody_client(
-        [
-            {token_keeper, fun capi_ct_helper_tk:user_session_handler/2},
-            {invoice_templating, fun
-                ('Get', {_, ?STRING}) -> {ok, ?INVOICE_TPL};
-                ('Delete', {_, ?STRING}) -> {ok, ok}
-            end}
-        ],
-        Config
-    ),
-    _ = mock_bouncer_assert_invoice_tpl_op_ctx(<<"DeleteInvoiceTemplate">>, ?STRING, ?STRING, ?STRING, Config),
     ok = capi_client_invoice_templates:delete(?config(context, Config), ?STRING).
 
 -spec get_invoice_payment_methods_by_tpl_id_ok_test(config()) -> _.
