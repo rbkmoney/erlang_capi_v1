@@ -11,7 +11,7 @@
 ) -> {ok | error, swag_server:response()}.
 process_request('CreateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
     Params = encode_params(#{<<"InvoiceTemplateCreateParams">> => create_request_params(Req)}),
-    Path = ?PATH,
+    Path = ?INVOICE_TEMPLATE_PATH,
     Url = get_url_api(Path),
     case do_request(post, Url, Params, ReqCtx0) of
         {ok, 201, BodyBin} ->
