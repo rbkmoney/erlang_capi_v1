@@ -99,7 +99,7 @@ process_request('CreateInvoiceWithTemplate', Req, ReqCtx0, _HandlerOpts) ->
     end;
 process_request('GetInvoicePaymentMethodsByTemplateID', Req, ReqCtx0, _) ->
     TemplateID = maps:get(invoiceTemplateID, Req),
-    Path = <<?PATH/binary, "/", TemplateID/binary, "/payment-methods">>,
+    Path = <<?INVOICE_TEMPLATE_PATH/binary, "/", TemplateID/binary, "/payment-methods">>,
     Url = get_url_api(Path),
     case do_request(get, Url, <<>>, ReqCtx0) of
         {ok, 200, Response} ->
