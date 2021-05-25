@@ -64,7 +64,7 @@ process_request('UpdateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
     end;
 process_request('DeleteInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
     TemplateID = maps:get(invoiceTemplateID, Req),
-    Path = <<?PATH/binary, "/", TemplateID/binary>>,
+    Path = <<?INVOICE_TEMPLATE_PATH/binary, "/", TemplateID/binary>>,
     Url = get_url_api(Path),
     case do_request(delete, Url, <<>>, ReqCtx0) of
         {ok, 204, _} ->
