@@ -47,7 +47,7 @@ process_request('GetInvoiceTemplateByID', Req, ReqCtx0, _HandlerOpts) ->
     end;
 process_request('UpdateInvoiceTemplate', Req, ReqCtx0, _HandlerOpts) ->
     TemplateID = maps:get(invoiceTemplateID, Req),
-    Path = <<?PATH/binary, "/", TemplateID/binary>>,
+    Path = <<?INVOICE_TEMPLATE_PATH/binary, "/", TemplateID/binary>>,
     Url = get_url_api(Path),
     Params = encode_params(#{<<"InvoiceTemplateUpdateParams">> => update_request_params(Req)}),
     case do_request(put, Url, Params, ReqCtx0) of
