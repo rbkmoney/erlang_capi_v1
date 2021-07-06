@@ -1199,7 +1199,7 @@ process_request('ActivateMyParty', _Req, ReqSt0) ->
     end;
 process_request('GetCategories', _Req, ReqSt0) ->
     {allowed, ReqSt1} = authorize_operation(#{}, ReqSt0),
-    {ok, Categories} = capi_domain:get_categories(ReqSt1#reqst.woody_ctx),
+    {ok, Categories} = capi_domain:get_objects_by_type(category, ReqSt1#reqst.woody_ctx),
     reply(200, [decode_category(C) || C <- Categories], ReqSt1);
 process_request('GetCategoryByRef', Req, ReqSt0) ->
     CategoryID = maps:get(categoryID, Req),
